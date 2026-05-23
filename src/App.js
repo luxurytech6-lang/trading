@@ -1,24 +1,37 @@
-import logo from './logo.svg';
-import './App.css';
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+
+// Import your pages (adjust paths if needed)
+import TradeFlowLanding from './componet/tradeflowlanding';
+import SignUp from './componet/user/signup';
+import Login from './componet/user/login';
+import About from './componet/about';
+import Dashboard from './dashboard/dashboard';
+import CopyTrading from './dashboard/CopyTrading';
+import HireTrader from './dashboard/Hiretrader';
+import Terminal from './dashboard/terminal';
+import TradingTerminal from './dashboard/terminal';
+import Marketplace from './dashboard/MarketPlace';
+import Policy from './componet/policy';
+import Terms from './componet/terms';
 
 function App() {
   return (
-    <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
-    </div>
+    <Router>
+      <Routes>
+        <Route path="/" element={<TradeFlowLanding />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/signup" element={<SignUp />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/copy-trading" element={<CopyTrading />} />
+        <Route path="/hire-trader" element={<HireTrader />} />
+        <Route path="/terminal" element={<TradingTerminal />} />
+        <Route path='/market-place' element= {<Marketplace />} />
+        <Route path='/policy' element={<Policy />} />
+        <Route path='/terms' element= {<Terms />} />
+      </Routes>
+    </Router>
   );
 }
 

@@ -1,0 +1,472 @@
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&family=Manrope:wght@400;500;600;700&display=swap');
+  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+  :root{
+    --p:#0d0f14;--s:#13161e;--t:#1a1e28;--br:#252a38;
+    --gr:#e8e8e0;--nt:#6b7280;--g:#c9f15d;--gd:#a8cc3e;
+    --bl:#4a9eff;--rd:#ff5757;--gn:#22c55e;--pr:#a855f7;
+    --fm:'Syne',sans-serif;--fb:'Manrope',sans-serif;--fmo:'DM Mono',monospace;
+    --nav:62px;--sb:210px;
+  }
+  body{font-family:var(--fb);background:var(--p);color:var(--gr);-webkit-font-smoothing:antialiased;margin:0}
+  a{color:inherit;text-decoration:none}
+  button,input,select,textarea{font-family:var(--fb)}
+  .up{color:var(--gn)} .mono{font-family:var(--fmo)} .text-gold{color:var(--g)} .muted{color:var(--nt)}
+
+  /* NAV */
+  .gnav{position:sticky;top:0;z-index:200;height:var(--nav);display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:var(--s);border-bottom:1px solid var(--br);gap:16px}
+  .logo{font-family:var(--fm);font-size:22px;font-weight:800;letter-spacing:-0.5px}
+  .logo em{color:var(--g);font-style:normal}
+  .gnav-right{display:flex;align-items:center;gap:14px}
+  .nav-port{font-family:var(--fm);font-size:11px;color:var(--nt)}
+  .nav-port .val{color:var(--gn);font-weight:700}
+  .nav-bell{font-size:18px;color:var(--nt);cursor:pointer}
+  .av{width:32px;height:32px;border-radius:50%;background:var(--g);color:#000;font-weight:800;font-family:var(--fm);display:flex;align-items:center;justify-content:center;font-size:11px;cursor:pointer;flex-shrink:0}
+
+  /* SHELL */
+  .shell{display:flex;min-height:calc(100vh - var(--nav))}
+
+  /* SIDEBAR */
+  .sb{width:var(--sb);min-width:var(--sb);background:var(--s);border-right:1px solid var(--br);display:flex;flex-direction:column;padding:12px 8px;position:sticky;top:var(--nav);height:calc(100vh - var(--nav));overflow-y:auto}
+  .sb-lbl{font-size:10px;font-weight:700;color:var(--nt);letter-spacing:1.2px;text-transform:uppercase;padding:0 8px;margin:10px 0 4px}
+  .sb-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;font-size:13px;font-weight:600;color:var(--nt);cursor:pointer;width:100%;transition:all .15s}
+  .sb-item i{font-size:17px;flex-shrink:0}
+  .sb-item:hover{background:var(--t);color:var(--gr)}
+  .sb-item.active{background:var(--g);color:#000}
+  .sb-item.active i{color:#000}
+  .sb-spacer{flex:1}
+  .sb-user{display:flex;align-items:center;gap:10px;padding:10px 8px;border-top:1px solid var(--br);margin-top:8px}
+  .sb-name{font-size:13px;font-weight:700}
+  .sb-role{font-size:10px;color:var(--nt);margin-top:1px}
+
+  /* MAIN */
+  .main{flex:1;padding:24px;min-width:0;overflow-x:hidden}
+  .page-title{font-family:var(--fm);font-size:26px;font-weight:800;margin-bottom:4px}
+  .page-sub{font-size:13px;color:var(--nt);margin-bottom:24px}
+
+  /* CARDS */
+  .card{background:var(--s);border:1px solid var(--br);border-radius:12px;padding:18px;margin-bottom:16px}
+  .card-title{font-family:var(--fm);font-size:11px;font-weight:700;color:var(--nt);text-transform:uppercase;letter-spacing:0.8px;margin-bottom:16px}
+
+  /* TOP METRICS ROW */
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+  .mc{background:var(--s);border:1px solid var(--br);border-radius:12px;padding:16px}
+  .mc-lbl{font-size:10px;color:var(--nt);font-weight:600;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px}
+  .mc-val{font-family:var(--fm);font-size:22px;font-weight:800;line-height:1}
+  .mc-sub{font-size:11px;color:var(--nt);margin-top:4px}
+
+  /* GRID */
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+
+  /* FORM */
+  .form-group{margin-bottom:14px}
+  .form-label{display:block;font-size:11px;font-weight:700;color:var(--nt);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px}
+  .form-input,.form-select{width:100%;background:var(--t);border:1px solid var(--br);color:var(--gr);font-size:13px;padding:9px 11px;border-radius:8px;outline:none;transition:border-color .15s;appearance:none}
+  .form-input:focus,.form-select:focus{border-color:var(--g)}
+  textarea.form-input{resize:vertical;line-height:1.6}
+  .btn{display:inline-flex;align-items:center;justify-content:center;border-radius:8px;font-weight:700;cursor:pointer;transition:all .15s;border:none;text-decoration:none;white-space:nowrap}
+  .btn-gold{background:var(--g);color:#000;font-size:13px;padding:11px 20px}
+  .btn-gold:hover{background:var(--gd)}
+  .btn-ghost{background:transparent;border:1px solid var(--br);color:var(--gr);font-size:12px;padding:7px 14px}
+  .btn-ghost:hover{border-color:var(--g);color:var(--g)}
+  .btn-full{width:100%}
+
+  /* HOW IT WORKS */
+  .how-step{display:flex;gap:14px;align-items:flex-start;margin-bottom:16px}
+  .how-step:last-child{margin-bottom:0}
+  .how-num{width:24px;height:24px;border-radius:50%;background:rgba(201,241,93,.12);color:var(--g);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+  .how-t{font-size:13px;font-weight:700;margin-bottom:3px}
+  .how-d{font-size:12px;color:var(--nt);line-height:1.6}
+
+  /* SECURITY */
+  .sec-card{background:rgba(201,241,93,.05) !important;border-color:rgba(201,241,93,.2) !important}
+  .sec-inner{display:flex;gap:12px;align-items:flex-start}
+  .sec-icon{color:var(--g);font-size:20px;flex-shrink:0;margin-top:2px}
+  .sec-title{font-size:13px;font-weight:700;margin-bottom:5px}
+  .sec-body{font-size:12px;color:var(--nt);line-height:1.7}
+
+  /* TRADER CARDS GRID (new design) */
+  .traders-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
+  .trader-card{background:var(--s);border:1px solid var(--br);border-radius:12px;padding:16px;transition:border-color .2s,background .2s;cursor:pointer;position:relative;overflow:hidden}
+  .trader-card:hover{border-color:rgba(201,241,93,.35);background:var(--t)}
+  .trader-card-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+  .tc-left{display:flex;align-items:center;gap:10px}
+  .tc-av{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--fm);font-size:11px;font-weight:800;color:#000;flex-shrink:0}
+  .tc-name{font-size:14px;font-weight:700;line-height:1.2}
+  .tc-handle{font-size:11px;color:var(--nt)}
+  .badge{font-size:10px;font-weight:700;padding:3px 8px;border-radius:4px;font-family:var(--fm);white-space:nowrap}
+  .badge-gold{background:rgba(201,241,93,.12);color:var(--g)}
+  .badge-blue{background:rgba(74,158,255,.12);color:var(--bl)}
+  .trader-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+  .ts-cell{background:var(--p);border:1px solid var(--br);border-radius:8px;padding:9px 10px;text-align:center}
+  .ts-val{font-family:var(--fmo);font-size:13px;font-weight:500;line-height:1}
+  .ts-lbl{font-size:10px;color:var(--nt);margin-top:3px}
+  .trader-footer{display:flex;align-items:center;justify-content:space-between}
+  .tc-fee{font-size:11px;color:var(--nt)}
+  .tc-fee span{color:var(--g);font-weight:700}
+  .clients-row{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--nt)}
+  .clients-row i{font-size:13px}
+
+  /* TABLE (for "Browse all" view) */
+  .filter-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+  .filter-tabs{display:flex;gap:6px}
+  .ftab{background:var(--t);border:1px solid var(--br);color:var(--nt);font-size:11px;font-weight:700;padding:5px 12px;border-radius:6px;cursor:pointer;font-family:var(--fb);transition:all .15s}
+  .ftab:hover{color:var(--gr)}
+  .ftab.on{background:rgba(201,241,93,.12);border-color:rgba(201,241,93,.3);color:var(--g)}
+  .dt{width:100%;border-collapse:collapse;font-size:12px}
+  .dt th{text-align:left;padding:6px 10px;color:var(--nt);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.6px;border-bottom:1px solid var(--br)}
+  .dt td{padding:10px 10px;border-bottom:1px solid var(--br);color:var(--gr)}
+  .dt tr:last-child td{border-bottom:none}
+  .dt tr:hover td{background:var(--t)}
+  .tc-mini{display:flex;align-items:center;gap:8px}
+  .av-mini{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--fm);font-size:9px;font-weight:800;color:#000;flex-shrink:0}
+
+  /* VIEW TOGGLE */
+  .view-toggle{display:flex;gap:4px;background:var(--t);border:1px solid var(--br);border-radius:7px;padding:3px}
+  .vt-btn{background:none;border:none;color:var(--nt);padding:5px 8px;border-radius:5px;cursor:pointer;font-size:14px;line-height:1;transition:all .15s}
+  .vt-btn.on{background:var(--br);color:var(--gr)}
+
+  /* MODAL */
+  .overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:500;align-items:center;justify-content:center;padding:20px}
+  .overlay.open{display:flex}
+  .modal-box{background:var(--s);border:1px solid var(--br);border-radius:16px;width:100%;max-width:440px;max-height:90vh;overflow-y:auto;padding:24px;position:relative}
+  .modal-close{position:absolute;top:14px;right:16px;background:var(--t);border:1px solid var(--br);color:var(--nt);width:28px;height:28px;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all .15s}
+  .modal-close:hover{color:var(--gr);border-color:var(--br)}
+  .modal-header{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+  .modal-av{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--fm);font-size:14px;font-weight:800;color:#000;flex-shrink:0}
+  .modal-name{font-family:var(--fm);font-size:18px;font-weight:800}
+  .modal-sub{font-size:12px;color:var(--nt);margin-top:2px}
+  .modal-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:20px}
+  .ms-cell{background:var(--t);border-radius:8px;padding:12px;text-align:center}
+  .ms-val{font-family:var(--fmo);font-size:14px;font-weight:500}
+  .ms-lbl{font-size:10px;color:var(--nt);margin-top:3px}
+  .modal-notice{background:rgba(201,241,93,.06);border:1px solid rgba(201,241,93,.15);border-radius:8px;padding:10px 12px;margin-bottom:16px;font-size:11px;color:var(--nt);display:flex;align-items:flex-start;gap:8px;line-height:1.6}
+  .mn-icon{color:var(--g);font-size:14px;flex-shrink:0;margin-top:1px}
+  .divider{height:1px;background:var(--br);margin:16px 0}
+</style>
+
+<div id="app">
+
+<nav class="gnav">
+  <a href="#" class="logo">Trade<em>Flow</em></a>
+  <div class="gnav-right">
+    <span class="nav-port">Portfolio &nbsp;<span class="val">$48,204.33</span></span>
+    <i class="ti ti-bell nav-bell" aria-hidden="true"></i>
+    <div class="av">AK</div>
+  </div>
+</nav>
+
+<div class="shell">
+  <div class="sb">
+    <div class="sb-lbl">Main</div>
+    <a href="#" class="sb-item"><i class="ti ti-layout-dashboard"></i> Dashboard</a>
+    <a href="#" class="sb-item"><i class="ti ti-copy"></i> Copy Trading</a>
+    <a href="#" class="sb-item active"><i class="ti ti-users"></i> Hire a Trader</a>
+    <a href="#" class="sb-item"><i class="ti ti-chart-line"></i> Insights</a>
+    <div class="sb-lbl">Account</div>
+    <a href="#" class="sb-item"><i class="ti ti-credit-card"></i> Payments</a>
+    <a href="#" class="sb-item"><i class="ti ti-headset"></i> Support</a>
+    <a href="#" class="sb-item"><i class="ti ti-file-description"></i> Terms</a>
+    <div class="sb-spacer"></div>
+    <div class="sb-user">
+      <div class="av">AK</div>
+      <div>
+        <div class="sb-name">Alex Kim</div>
+        <div class="sb-role">Pro · Verified</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="page-title">Hire a Trader</div>
+    <div class="page-sub">Delegate your portfolio to a verified professional. Cancel anytime — no lock-in.</div>
+
+    <!-- Metrics row -->
+    <div class="metrics">
+      <div class="mc">
+        <div class="mc-lbl">Active Traders</div>
+        <div class="mc-val">2</div>
+        <div class="mc-sub">Managing $14,000</div>
+      </div>
+      <div class="mc">
+        <div class="mc-lbl">Total Return</div>
+        <div class="mc-val up">+$3,240</div>
+        <div class="mc-sub">Since Jan 2025</div>
+      </div>
+      <div class="mc">
+        <div class="mc-lbl">Fees Paid</div>
+        <div class="mc-val">$648</div>
+        <div class="mc-sub">This year</div>
+      </div>
+      <div class="mc">
+        <div class="mc-lbl">Avg Win Rate</div>
+        <div class="mc-val">69%</div>
+        <div class="mc-sub">Across hired traders</div>
+      </div>
+    </div>
+
+    <!-- Post request + sidebar -->
+    <div class="g2">
+      <!-- Post form -->
+      <div class="card">
+        <div class="card-title">Post a Request</div>
+        <div class="form-group">
+          <label class="form-label">Capital to manage (USD)</label>
+          <input type="number" class="form-input" placeholder="e.g. 10,000" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Trading specialty</label>
+          <select class="form-select">
+            <option>Crypto</option>
+            <option>Forex</option>
+            <option>Stocks &amp; ETFs</option>
+            <option>Options</option>
+            <option>Commodities</option>
+            <option>Multi-asset</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Risk appetite</label>
+          <select class="form-select">
+            <option>Conservative (10–20% annual)</option>
+            <option>Moderate (20–40% annual)</option>
+            <option>Aggressive (40%+ annual)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Fee preference</label>
+          <select class="form-select">
+            <option>Performance only (% of profits)</option>
+            <option>Fixed monthly</option>
+            <option>Hybrid (base + performance)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Max monthly budget</label>
+          <input type="text" class="form-input" placeholder="e.g. $200/mo or 20% profits" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notes for trader</label>
+          <textarea class="form-input" rows="2" placeholder="Goals, restrictions, or anything else..."></textarea>
+        </div>
+        <button class="btn btn-gold btn-full" style="margin-top:4px;font-size:13px;padding:12px">Post Request →</button>
+      </div>
+
+      <!-- Right column: how it works + security -->
+      <div>
+        <div class="card">
+          <div class="card-title">How it works</div>
+          <div class="how-step">
+            <div class="how-num">1</div>
+            <div><div class="how-t">Post your request</div><div class="how-d">Set your capital, risk tolerance, and budget. Takes about 2 minutes.</div></div>
+          </div>
+          <div class="how-step">
+            <div class="how-num">2</div>
+            <div><div class="how-t">Get matched</div><div class="how-d">We surface verified traders who fit your profile. Review their track records.</div></div>
+          </div>
+          <div class="how-step">
+            <div class="how-num">3</div>
+            <div><div class="how-t">Agree on terms</div><div class="how-d">Sign a digital agreement. Trader gets limited trading access to your account.</div></div>
+          </div>
+          <div class="how-step">
+            <div class="how-num">4</div>
+            <div><div class="how-t">Monitor &amp; withdraw anytime</div><div class="how-d">Track performance in real time. Cancel with one click. No penalties.</div></div>
+          </div>
+        </div>
+
+        <div class="card sec-card">
+          <div class="sec-inner">
+            <i class="ti ti-shield-check sec-icon" aria-hidden="true"></i>
+            <div>
+              <div class="sec-title">Your funds stay protected</div>
+              <div class="sec-body">Hired traders get trading-only access — they cannot withdraw your funds. All trades are recorded and auditable. You retain full custody of your assets at all times.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Featured professionals -->
+    <div class="card">
+      <div class="filter-row">
+        <div class="card-title" style="margin-bottom:0">Featured Professionals</div>
+        <div style="display:flex;align-items:center;gap:10px">
+          <div class="filter-tabs">
+            <button class="ftab on" onclick="filterTabs(this,'All')">All</button>
+            <button class="ftab" onclick="filterTabs(this,'Crypto')">Crypto</button>
+            <button class="ftab" onclick="filterTabs(this,'Forex')">Forex</button>
+            <button class="ftab" onclick="filterTabs(this,'Stocks')">Stocks</button>
+          </div>
+          <div class="view-toggle">
+            <button class="vt-btn on" id="vt-card" onclick="setView('card')" title="Card view"><i class="ti ti-layout-grid"></i></button>
+            <button class="vt-btn" id="vt-table" onclick="setView('table')" title="Table view"><i class="ti ti-list"></i></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Card view -->
+      <div id="card-view" class="traders-grid">
+        <!-- Populated by JS -->
+      </div>
+
+      <!-- Table view -->
+      <div id="table-view" style="display:none;overflow-x:auto">
+        <table class="dt">
+          <thead>
+            <tr>
+              <th>Trader</th><th>Specialty</th><th>12M Return</th><th>Win Rate</th><th>Min. Capital</th><th>Fee</th><th>Clients</th><th></th>
+            </tr>
+          </thead>
+          <tbody id="table-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="overlay" id="modal" onclick="closeModal(event)">
+  <div class="modal-box" onclick="event.stopPropagation()">
+    <button class="modal-close" onclick="document.getElementById('modal').classList.remove('open')">×</button>
+    <div class="modal-header">
+      <div class="modal-av" id="m-av" style="background:#c9f15d"></div>
+      <div>
+        <div class="modal-name" id="m-name"></div>
+        <div class="modal-sub" id="m-sub"></div>
+      </div>
+    </div>
+    <div class="modal-stats" id="m-stats"></div>
+    <div class="divider"></div>
+    <div class="form-group">
+      <label class="form-label">Capital to allocate (USD)</label>
+      <input type="number" class="form-input" placeholder="e.g. 5,000" />
+    </div>
+    <div class="form-group">
+      <label class="form-label">Duration</label>
+      <select class="form-select">
+        <option>1 Month (trial)</option>
+        <option>3 Months</option>
+        <option>6 Months</option>
+        <option>Open-ended</option>
+      </select>
+    </div>
+    <div class="modal-notice">
+      <i class="ti ti-shield-check mn-icon" aria-hidden="true"></i>
+      <span>Trader cannot withdraw funds. You retain full custody. Cancel anytime without penalty.</span>
+    </div>
+    <button class="btn btn-gold btn-full" style="font-size:13px;padding:12px">Confirm &amp; Proceed to Payment →</button>
+  </div>
+</div>
+
+</div>
+
+<script>
+const PROS = [
+  {name:'Vincent Ford',handle:'vForce',av:'VF',color:'var(--g)',specialty:'Crypto',ret:'142%',win:'73%',min:'$5,000',fee:'20% of profits',clients:48},
+  {name:'Sofia Mendez',handle:'sofiaM',av:'SM',color:'var(--bl)',specialty:'Forex',ret:'89%',win:'69%',min:'$2,000',fee:'15% of profits',clients:31},
+  {name:'Riku Osaka',handle:'rikuPRO',av:'RO',color:'var(--pr)',specialty:'Stocks',ret:'67%',win:'65%',min:'$1,000',fee:'12% of profits',clients:22},
+  {name:'Arjun Joshi',handle:'arjunFX',av:'AJ',color:'#E87040',specialty:'Forex',ret:'196%',win:'61%',min:'$10,000',fee:'25% of profits',clients:67},
+];
+
+let currentFilter = 'All';
+let currentView = 'card';
+
+function filterTabs(el, val) {
+  document.querySelectorAll('.ftab').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  currentFilter = val;
+  render();
+}
+
+function setView(v) {
+  currentView = v;
+  document.getElementById('vt-card').classList.toggle('on', v==='card');
+  document.getElementById('vt-table').classList.toggle('on', v==='table');
+  document.getElementById('card-view').style.display = v==='card' ? 'grid' : 'none';
+  document.getElementById('table-view').style.display = v==='table' ? 'block' : 'none';
+}
+
+function filtered() {
+  return currentFilter === 'All' ? PROS : PROS.filter(t => t.specialty === currentFilter);
+}
+
+function openHire(idx) {
+  const t = filtered()[idx];
+  document.getElementById('m-av').textContent = t.av;
+  document.getElementById('m-av').style.background = t.color;
+  document.getElementById('m-name').textContent = 'Hire ' + t.name;
+  document.getElementById('m-sub').textContent = '@' + t.handle + ' · ' + t.specialty;
+  document.getElementById('m-stats').innerHTML = [
+    ['12M Return', '+'+t.ret, 'up'],
+    ['Win Rate', t.win, ''],
+    ['Min Capital', t.min, ''],
+    ['Fee', t.fee, 'text-gold'],
+  ].map(([l,v,c]) => `<div class="ms-cell"><div class="ms-val ${c}">${v}</div><div class="ms-lbl">${l}</div></div>`).join('');
+  document.getElementById('modal').classList.add('open');
+}
+
+function closeModal(e) {
+  if(e.target === document.getElementById('modal')) document.getElementById('modal').classList.remove('open');
+}
+
+function render() {
+  const list = filtered();
+  // Card view
+  document.getElementById('card-view').innerHTML = list.map((t, i) => `
+    <div class="trader-card" onclick="openHire(${i})">
+      <div class="trader-card-top">
+        <div class="tc-left">
+          <div class="tc-av" style="background:${t.color}">${t.av}</div>
+          <div>
+            <div class="tc-name">${t.name}</div>
+            <div class="tc-handle">@${t.handle}</div>
+          </div>
+        </div>
+        <span class="badge badge-gold">${t.specialty}</span>
+      </div>
+      <div class="trader-stats">
+        <div class="ts-cell">
+          <div class="ts-val up">+${t.ret}</div>
+          <div class="ts-lbl">12M Return</div>
+        </div>
+        <div class="ts-cell">
+          <div class="ts-val">${t.win}</div>
+          <div class="ts-lbl">Win Rate</div>
+        </div>
+        <div class="ts-cell">
+          <div class="ts-val">${t.clients}</div>
+          <div class="ts-lbl">Clients</div>
+        </div>
+      </div>
+      <div class="trader-footer">
+        <div class="tc-fee">Fee: <span>${t.fee}</span></div>
+        <div class="clients-row muted">Min: ${t.min}</div>
+      </div>
+    </div>
+  `).join('');
+
+  // Table view
+  document.getElementById('table-body').innerHTML = list.map((t, i) => `
+    <tr>
+      <td>
+        <div class="tc-mini">
+          <div class="av-mini" style="background:${t.color}">${t.av}</div>
+          <div>
+            <div style="font-weight:700;font-size:12px">${t.name}</div>
+            <div style="font-size:11px;color:var(--nt)">@${t.handle}</div>
+          </div>
+        </div>
+      </td>
+      <td><span class="badge badge-gold">${t.specialty}</span></td>
+      <td class="mono up" style="font-weight:700">+${t.ret}</td>
+      <td class="mono">${t.win}</td>
+      <td class="mono">${t.min}</td>
+      <td style="font-size:12px;color:var(--g)">${t.fee}</td>
+      <td class="mono">${t.clients}</td>
+      <td><button class="btn btn-ghost" onclick="openHire(${i})">Hire</button></td>
+    </tr>
+  `).join('');
+}
+
+render();
+</script>
