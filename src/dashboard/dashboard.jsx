@@ -78,17 +78,24 @@ const GLOBAL_CSS = `
 
   /* ── SIDEBAR ── */
   .sidebar {
-    grid-column: 1;
-    grid-row: 1;
-    background: var(--surface);
-    border-right: 1px solid var(--border);
-    display: flex;
-    flex-direction: column;
-    height: 100vh;
-    overflow: hidden;
-    position: relative;
-    z-index: 100;
-    transition: transform .25s cubic-bezier(.4,0,.2,1);
+    grid-column: 1 !important;
+    grid-row: 1 !important;
+    background: var(--surface) !important;
+    border-right: 1px solid var(--border) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    width: var(--sidebar-w) !important;
+    min-width: var(--sidebar-w) !important;
+    height: 100vh !important;
+    overflow: hidden !important;
+    overflow-y: auto !important;
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    transform: none !important;
+    z-index: 100 !important;
+    transition: transform .25s cubic-bezier(.4,0,.2,1) !important;
+    flex-shrink: 0 !important;
   }
 
   .sidebar::before {
@@ -731,14 +738,15 @@ const GLOBAL_CSS = `
     .right-col { grid-column: 2; grid-row: 1 / 4; }
   }
 
-  @media (max-width: 900px) {
+  @media (max-width: 768px) {
     :root { --sidebar-w: 260px; }
-    .shell { grid-template-columns: 1fr; }
+    .shell { grid-template-columns: 1fr !important; }
     .sidebar {
-      position: fixed; top: 0; left: 0; height: 100vh;
-      transform: translateX(-100%); z-index: 300;
+      position: fixed !important; top: 0 !important; left: 0 !important; height: 100vh !important;
+      transform: translateX(-100%) !important; z-index: 300 !important;
+      width: var(--sidebar-w) !important; min-width: var(--sidebar-w) !important;
     }
-    .sidebar.open { transform: translateX(0); box-shadow: 4px 0 32px rgba(0,0,0,.6); }
+    .sidebar.open { transform: translateX(0) !important; box-shadow: 4px 0 32px rgba(0,0,0,.6) !important; }
     .right-panel { grid-column: 1; }
     .topbar-hamburger { display: flex; }
     .topbar-search { display: none; }

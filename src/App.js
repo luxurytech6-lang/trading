@@ -14,6 +14,10 @@ import TradingTerminal from './dashboard/terminal';
 import Marketplace from './dashboard/MarketPlace';
 import Policy from './componet/policy';
 import Terms from './componet/terms';
+import Insights from './dashboard/insights';
+import Profile from './dashboard/profile';
+import Settings from './dashboard/settings';
+import Support from './dashboard/support';
 
 function App() {
   return (
@@ -30,6 +34,10 @@ function App() {
         <Route path='/market-place' element= {<Marketplace />} />
         <Route path='/policy' element={<Policy />} />
         <Route path='/terms' element= {<Terms />} />
+        <Route path='/insights' element= {<Insights />} />
+        <Route path='/profile' element= {<Profile />}/>
+        <Route path='/settings' element= {<Settings />} />
+        <Route path='/support' element= {<Support />} />
       </Routes>
     </Router>
   );
