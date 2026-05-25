@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import supabase from "../supabase";
 
 const T = {
   bg:'#080b10', s:'#0e1219', s2:'#141922', br:'#1e2535', br2:'#2a3347',
@@ -320,9 +321,102 @@ function Toggle({ defaultChecked = false, onChange }) {
   );
 }
 
-/* ─── Panels ─────────────────────────────────────────── */
 
-function ProfilePanel() {
+/* ─── Data hook ──────────────────────────────────────── */
+function useSettingsData() {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
+
+  React.useEffect(() => {
+    async function load() {
+      try {
+        const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser();
+        if (authErr || !authUser) throw new Error('Not authenticated');
+        const uid = authUser.id;
+
+        const [
+          userRes, subRes, walletRes, settingsRes,
+          twoFaRes, sessionsRes, appsRes,
+          apiKeyRes, usageRes, copyRes, notifRes,
+        ] = await Promise.all([
+          supabase.from('users').select('*').eq('id', uid).single(),
+          supabase.from('user_subscriptions')
+            .select('*, subscription_plans(*)')
+            .eq('user_id', uid).eq('status', 'active')
+            .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+          supabase.from('wallets')
+            .select('balance, currency').eq('user_id', uid).eq('currency', 'USD').maybeSingle(),
+          supabase.from('user_settings')
+            .select('*').eq('user_id', uid).maybeSingle(),
+          supabase.from('two_factor_methods')
+            .select('*').eq('user_id', uid),
+          supabase.from('sessions')
+            .select('*').eq('user_id', uid)
+            .order('last_active_at', { ascending: false }).limit(5),
+          supabase.from('connected_apps')
+            .select('*').eq('user_id', uid),
+          supabase.from('api_keys')
+            .select('*').eq('user_id', uid).eq('is_active', true)
+            .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+          supabase.from('usage_metrics')
+            .select('*').eq('user_id', uid)
+            .order('period_start', { ascending: false }).limit(1).maybeSingle(),
+          supabase.from('copy_relationships')
+            .select('id').eq('copier_id', uid).eq('status', 'active'),
+          supabase.from('notifications')
+            .select('id, is_read').eq('user_id', uid).eq('is_read', false).limit(99),
+        ]);
+
+        if (userRes.error) throw userRes.error;
+
+        setData({
+          user:        userRes.data,
+          subscription: subRes.data,
+          wallet:      walletRes.data,
+          settings:    settingsRes.data,
+          twoFa:       twoFaRes.data    || [],
+          sessions:    sessionsRes.data || [],
+          apps:        appsRes.data     || [],
+          apiKey:      apiKeyRes.data,
+          usage:       usageRes.data,
+          copyCount:   (copyRes.data    || []).length,
+          unreadCount: (notifRes.data   || []).length,
+        });
+      } catch (e) {
+        setError(e.message || 'Failed to load settings');
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  return { data, loading, error };
+}
+
+function fmtMoney(n, currency = 'USD') {
+  if (n == null) return '$0.00';
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(n);
+}
+function initials(name = '') {
+  return name.split(' ').filter(Boolean).map(w => w[0]).join('').slice(0, 2).toUpperCase() || '?';
+}
+function fmtDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function timeAgo(ts) {
+  if (!ts) return '—';
+  const diff = (Date.now() - new Date(ts)) / 1000;
+  if (diff < 60)    return 'Just now';
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  if (diff < 172800) return 'Yesterday';
+  return fmtDate(ts);
+}
+
+function ProfilePanel({ user = {} }) {
   return (
     <div className="st-panel">
       <div className="st-card">
@@ -339,7 +433,7 @@ function ProfilePanel() {
               color:'#000', fontSize:24, fontWeight:700,
               display:'flex', alignItems:'center', justifyContent:'center',
               boxShadow:'0 0 20px rgba(200,245,96,.3)',
-            }}>AR</div>
+            }}>{initials(`${user.first_name || ''} ${user.last_name || ''}`)}</div>
             <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
               <button className="in-btn in-btn-ghost in-btn-sm"><i className="ti ti-upload" /> Upload Photo</button>
               <div style={{ fontSize:11, color:T.nt }}>JPG, PNG or GIF · Max 5 MB</div>
@@ -351,30 +445,30 @@ function ProfilePanel() {
           <div className="st-input-row">
             <div className="st-input-group">
               <div className="st-input-label">First Name</div>
-              <input className="st-input" defaultValue="Alex" />
+              <input className="st-input" defaultValue={user.first_name || ''} />
             </div>
             <div className="st-input-group">
               <div className="st-input-label">Last Name</div>
-              <input className="st-input" defaultValue="Rivera" />
+              <input className="st-input" defaultValue={user.last_name || ''} />
             </div>
           </div>
           <div className="st-input-group">
             <div className="st-input-label">Username</div>
-            <input className="st-input" defaultValue="@alexrivera" />
+            <input className="st-input" defaultValue={user.handle || ''} />
           </div>
           <div className="st-input-group">
             <div className="st-input-label">Bio</div>
             <textarea className="st-input" rows={3} style={{ resize:'vertical' }}
-              defaultValue="Passionate about markets and data. Exploring trading strategies on my own terms." />
+              defaultValue={user.bio || ''} />
           </div>
           <div className="st-input-row">
             <div className="st-input-group">
               <div className="st-input-label">Location</div>
-              <input className="st-input" defaultValue="New York, USA" />
+              <input className="st-input" defaultValue={user.location || ''} />
             </div>
             <div className="st-input-group">
               <div className="st-input-label">Website</div>
-              <input className="st-input" defaultValue="alexrivera.trade" />
+              <input className="st-input" defaultValue={user.website || ''} />
             </div>
           </div>
           <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
@@ -393,7 +487,7 @@ function ProfilePanel() {
           <div className="st-input-group">
             <div className="st-input-label">Current Email</div>
             <div style={{ display:'flex', gap:8 }}>
-              <input className="st-input" defaultValue="alex.rivera@email.com" />
+              <input className="st-input" defaultValue={user.email || ''} />
               <button className="in-btn in-btn-ghost in-btn-sm" style={{ flexShrink:0 }}>Update</button>
             </div>
           </div>
@@ -407,7 +501,13 @@ function ProfilePanel() {
   );
 }
 
-function SecurityPanel() {
+function SecurityPanel({ twoFa = [], sessions = [] }) {
+  // Map DB method names to display config
+  const twoFaConfig = [
+    { method:'authenticator_app', icon:'ti-brand-google', label:'Authenticator App', sub:'Use Google Authenticator or similar', iconBg:'rgba(96,165,250,.12)', iconCol:'#60a5fa' },
+    { method:'sms',              icon:'ti-message',      label:'SMS Verification',   sub:'Receive codes via text message',      iconBg:'rgba(52,211,153,.12)', iconCol:'#34d399' },
+    { method:'email_otp',       icon:'ti-mail',         label:'Email OTP',          sub:'Receive codes to your email',          iconBg:'rgba(200,245,96,.12)', iconCol:'#c8f560' },
+  ].map(cfg => ({ ...cfg, enabled: twoFa.find(t => t.method === cfg.method)?.is_enabled || false }));
   return (
     <div className="st-panel">
       <div className="st-card">
@@ -442,11 +542,7 @@ function SecurityPanel() {
           <div className="st-card-desc">Add an extra layer of security to your account.</div>
         </div>
         <div className="st-card-body">
-          {[
-            { icon:'ti-brand-google', label:'Authenticator App', sub:'Use Google Authenticator or similar', enabled:true,  iconBg:'rgba(96,165,250,.12)', iconCol:'#60a5fa' },
-            { icon:'ti-message',     label:'SMS Verification',   sub:'Receive codes via text message',      enabled:false, iconBg:'rgba(52,211,153,.12)', iconCol:'#34d399' },
-            { icon:'ti-mail',        label:'Email OTP',          sub:'Receive codes to your email',          enabled:false, iconBg:'rgba(200,245,96,.12)', iconCol:'#c8f560' },
-          ].map((m, i) => (
+          {twoFaConfig.map((m, i) => (
             <React.Fragment key={m.label}>
               {i > 0 && <div className="st-divider" />}
               <div className="st-row">
@@ -475,18 +571,17 @@ function SecurityPanel() {
           <div className="st-card-desc">Devices currently signed in to your account.</div>
         </div>
         <div className="st-card-body" style={{ gap:0 }}>
-          {[
-            { icon:'ti-device-laptop', device:'MacBook Pro · Chrome',     loc:'New York, USA',        time:'Now', current:true  },
-            { icon:'ti-device-mobile', device:'iPhone 15 · Mobile App',   loc:'New York, USA',        time:'2h ago', current:false },
-            { icon:'ti-device-desktop',device:'Windows PC · Firefox',     loc:'New Jersey, USA',      time:'3 days ago', current:false },
-          ].map((s, i) => (
+          {sessions.length === 0 && (
+            <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>No active sessions found.</div>
+          )}
+          {sessions.map((s, i) => (
             <div key={i} className="st-session">
-              <div className="st-session-icon"><i className={`ti ${s.icon}`} /></div>
+              <div className="st-session-icon"><i className="ti ti-device-laptop" /></div>
               <div style={{ flex:1 }}>
-                <div className="st-session-device">{s.device}</div>
-                <div className="st-session-sub">{s.loc} · {s.time}</div>
+                <div className="st-session-device">{s.device || 'Unknown device'}</div>
+                <div className="st-session-sub">{s.location || '—'} · {timeAgo(s.last_active_at)}</div>
               </div>
-              {s.current
+              {s.is_current
                 ? <span className="st-session-current">This device</span>
                 : <button className="in-btn in-btn-ghost in-btn-sm" style={{ color:T.rd }}>Revoke</button>
               }
@@ -501,12 +596,15 @@ function SecurityPanel() {
   );
 }
 
-function SubscriptionPanel() {
+function SubscriptionPanel({ subscription, usage }) {
+  const plan = subscription?.subscription_plans;
+  const renewDate = subscription?.current_period_end ? fmtDate(subscription.current_period_end) : '—';
+  const planName = plan ? plan.name.charAt(0).toUpperCase() + plan.name.slice(1) + ' Plan' : 'Basic Plan';
   const usages = [
-    { label:'Price Alerts',     used:12, total:50,  color:'#c8f560' },
-    { label:'Watchlist Spots',  used:38, total:100, color:'#60a5fa' },
-    { label:'Signal Saves',     used:7,  total:20,  color:'#a78bfa' },
-    { label:'API Calls / day',  used:840,total:2000,color:'#34d399' },
+    { label:'Price Alerts',    used: usage?.alerts_used    || 0, total: plan?.max_alerts       || 10,   color:'#c8f560' },
+    { label:'Watchlist Spots', used: usage?.watchlist_used || 0, total: plan?.max_watchlist     || 20,   color:'#60a5fa' },
+    { label:'Signal Saves',   used: usage?.signal_saves   || 0, total: 20,                              color:'#a78bfa' },
+    { label:'API Calls / day', used: usage?.api_calls      || 0, total: plan?.api_calls_per_day || 0,   color:'#34d399' },
   ];
   return (
     <div className="st-panel">
@@ -519,11 +617,11 @@ function SubscriptionPanel() {
           <div className="st-plan-card">
             <div className="st-plan-icon">⚡</div>
             <div style={{ flex:1 }}>
-              <div className="st-plan-name">Pro Plan</div>
-              <div className="st-plan-desc">Renews June 15, 2026 · Billed monthly</div>
+              <div className="st-plan-name">{planName}</div>
+              <div className="st-plan-desc">Renews {renewDate} · Billed {subscription?.billing_cycle || 'monthly'}</div>
             </div>
             <div style={{ textAlign:'right', flexShrink:0 }}>
-              <div style={{ fontFamily:T.mono, fontSize:20, fontWeight:700, color:T.gr }}>$29<span style={{ fontSize:12, color:T.nt, fontFamily:T.sans }}>/mo</span></div>
+              <div style={{ fontFamily:T.mono, fontSize:20, fontWeight:700, color:T.gr }}>{plan ? `$${Number(plan.monthly_price).toFixed(0)}` : 'Free'}<span style={{ fontSize:12, color:T.nt, fontFamily:T.sans }}>/mo</span></div>
             </div>
           </div>
           <div style={{ display:'flex', gap:8 }}>
@@ -670,11 +768,11 @@ function NotificationsPanel() {
   );
 }
 
-function AppearancePanel() {
-  const [theme, setTheme] = useState('dark');
-  const [density, setDensity] = useState('comfortable');
-  const [chartStyle, setChartStyle] = useState('candle');
-  const [accentColor, setAccentColor] = useState('#c8f560');
+function AppearancePanel({ settings = {} }) {
+  const [theme, setTheme] = useState(settings.theme || 'dark');
+  const [density, setDensity] = useState(settings.layout_density || 'comfortable');
+  const [chartStyle, setChartStyle] = useState(settings.chart_type || 'candle');
+  const [accentColor, setAccentColor] = useState(settings.accent_color || '#c8f560');
 
   const accents = ['#c8f560','#60a5fa','#a78bfa','#34d399','#f59e0b','#f87171'];
 
@@ -765,9 +863,9 @@ function AppearancePanel() {
                 <option value="area">Area</option>
               </select>
             )},
-            { label:'Show Volume Bars', sub:'Display volume below price chart', control:<Toggle defaultChecked={true} /> },
-            { label:'Extended Hours',   sub:'Show pre- and after-market data',   control:<Toggle defaultChecked={false} /> },
-            { label:'Grid Lines',       sub:'Show background grid on charts',    control:<Toggle defaultChecked={true} /> },
+            { label:'Show Volume Bars', sub:'Display volume below price chart', control:<Toggle defaultChecked={settings.show_volume ?? true} /> },
+            { label:'Extended Hours',   sub:'Show pre- and after-market data',   control:<Toggle defaultChecked={settings.show_extended_hours ?? false} /> },
+            { label:'Grid Lines',       sub:'Show background grid on charts',    control:<Toggle defaultChecked={settings.show_grid_lines ?? true} /> },
           ].map((r, i) => (
             <React.Fragment key={r.label}>
               {i > 0 && <div className="st-divider" />}
@@ -786,7 +884,7 @@ function AppearancePanel() {
   );
 }
 
-function PrivacyPanel() {
+function PrivacyPanel({ settings = {} }) {
   return (
     <div className="st-panel">
       <div className="st-card">
@@ -796,11 +894,11 @@ function PrivacyPanel() {
         </div>
         <div className="st-card-body">
           {[
-            { label:'Public Profile',      sub:'Your profile is visible to all users',              def:true  },
-            { label:'Show Watchlist',       sub:'Let others see your saved assets',                  def:false },
-            { label:'Show Activity Feed',  sub:'Display your recent activity on your profile',      def:true  },
-            { label:'Show Followed Traders', sub:'Let others see the traders you follow',            def:false },
-            { label:'Appear in Search',    sub:'Show up in user search results',                    def:true  },
+            { label:'Public Profile',        sub:'Your profile is visible to all users',                def: settings.profile_public         ?? true  },
+            { label:'Show Watchlist',         sub:'Let others see your saved assets',                    def: settings.show_watchlist          ?? false },
+            { label:'Show Activity Feed',     sub:'Display your recent activity on your profile',        def: settings.show_activity           ?? true  },
+            { label:'Show Followed Traders',  sub:'Let others see the traders you follow',              def: settings.show_followed_traders   ?? false },
+            { label:'Appear in Search',       sub:'Show up in user search results',                      def: settings.appear_in_search        ?? true  },
           ].map((r, i) => (
             <React.Fragment key={r.label}>
               {i > 0 && <div className="st-divider" />}
@@ -823,9 +921,9 @@ function PrivacyPanel() {
         </div>
         <div className="st-card-body">
           {[
-            { label:'Usage Analytics',      sub:'Share anonymised usage data to improve the product', def:true  },
-            { label:'Personalised Feed',    sub:'Use your activity to personalise signal recommendations', def:true },
-            { label:'Marketing Emails',     sub:'Receive product news and feature announcements',       def:false },
+            { label:'Usage Analytics',     sub:'Share anonymised usage data to improve the product',         def: settings.usage_analytics    ?? true  },
+            { label:'Personalised Feed',   sub:'Use your activity to personalise signal recommendations',   def: settings.personalised_feed  ?? true  },
+            { label:'Marketing Emails',    sub:'Receive product news and feature announcements',             def: settings.marketing_emails   ?? false },
           ].map((r, i) => (
             <React.Fragment key={r.label}>
               {i > 0 && <div className="st-divider" />}
@@ -870,14 +968,44 @@ function PrivacyPanel() {
   );
 }
 
-function ConnectedPanel() {
-  const apps = [
-    { icon:'ti-brand-discord',  label:'Discord',  sub:'Get alerts in your Discord server',          iconBg:'rgba(96,165,250,.12)',  iconCol:'#60a5fa', connected:true  },
-    { icon:'ti-brand-telegram', label:'Telegram', sub:'Receive signals via Telegram bot',            iconBg:'rgba(96,165,250,.12)',  iconCol:'#60a5fa', connected:false },
-    { icon:'ti-brand-slack',    label:'Slack',    sub:'Push notifications to your Slack workspace',  iconBg:'rgba(52,211,153,.12)', iconCol:'#34d399', connected:false },
-    { icon:'ti-chart-candle',   label:'TradingView', sub:'Sync watchlists with TradingView',         iconBg:'rgba(167,139,250,.12)',iconCol:'#a78bfa', connected:true  },
-    { icon:'ti-building-bank',  label:'Broker Link', sub:'Connect a paper trading or live broker',   iconBg:'rgba(245,158,11,.12)', iconCol:'#f59e0b', connected:false },
+function ConnectedPanel({ apps = [] }) {
+  const APP_CONFIG = [
+    { key:'discord',     icon:'ti-brand-discord',  label:'Discord',     sub:'Get alerts in your Discord server',       iconBg:'rgba(96,165,250,.12)',  iconCol:'#60a5fa' },
+    { key:'telegram',    icon:'ti-brand-telegram', label:'Telegram',    sub:'Receive signals via Telegram bot',         iconBg:'rgba(52,211,153,.12)',  iconCol:'#34d399' },
+    { key:'broker_link', icon:'ti-building-bank',  label:'Broker Link', sub:'Connect a paper trading or live broker',   iconBg:'rgba(245,158,11,.12)',  iconCol:'#f59e0b' },
   ];
+
+  const [states, setStates] = useState(() =>
+    Object.fromEntries(APP_CONFIG.map(({ key }) => {
+      const row = apps.find(a => a.app_name === key);
+      return [key, { connected: row?.is_connected || false, loading: false }];
+    }))
+  );
+
+  async function toggle(key, currentlyConnected) {
+    setStates(s => ({ ...s, [key]: { ...s[key], loading: true } }));
+    try {
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const uid = authUser?.id;
+      if (!uid) throw new Error('Not authenticated');
+
+      // Upsert into connected_apps
+      const { error } = await supabase.from('connected_apps').upsert({
+        user_id:      uid,
+        app_name:     key,
+        is_connected: !currentlyConnected,
+        connected_at:  !currentlyConnected ? new Date().toISOString() : null,
+        disconnected_at: currentlyConnected ? new Date().toISOString() : null,
+      }, { onConflict: 'user_id,app_name' });
+
+      if (error) throw error;
+      setStates(s => ({ ...s, [key]: { connected: !currentlyConnected, loading: false } }));
+    } catch (e) {
+      console.error('Toggle failed:', e.message);
+      setStates(s => ({ ...s, [key]: { ...s[key], loading: false } }));
+    }
+  }
+
   return (
     <div className="st-panel">
       <div className="st-card">
@@ -886,30 +1014,40 @@ function ConnectedPanel() {
           <div className="st-card-desc">Third-party integrations linked to your account.</div>
         </div>
         <div className="st-card-body" style={{ gap:0 }}>
-          {apps.map((a, i) => (
-            <div key={i} className="st-conn">
-              <div className="st-conn-icon" style={{ background:a.iconBg, color:a.iconCol }}><i className={`ti ${a.icon}`} /></div>
-              <div style={{ flex:1 }}>
-                <div className="st-conn-name" style={{ display:'flex', alignItems:'center', gap:8 }}>
-                  {a.label}
-                  {a.connected && <span className="in-badge in-badge-green">Connected</span>}
+          {APP_CONFIG.map((a, i) => {
+            const { connected, loading } = states[a.key];
+            return (
+              <div key={a.key} className="st-conn">
+                <div className="st-conn-icon" style={{ background:a.iconBg, color:a.iconCol }}>
+                  <i className={`ti ${a.icon}`} />
                 </div>
-                <div className="st-conn-sub">{a.sub}</div>
+                <div style={{ flex:1 }}>
+                  <div className="st-conn-name" style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    {a.label}
+                    {connected && <span className="in-badge in-badge-green">Connected</span>}
+                  </div>
+                  <div className="st-conn-sub">{a.sub}</div>
+                </div>
+                <button
+                  className={`in-btn ${connected ? 'in-btn-ghost' : 'in-btn-accent'} in-btn-sm`}
+                  disabled={loading}
+                  onClick={() => toggle(a.key, connected)}
+                  style={{ opacity: loading ? 0.6 : 1 }}
+                >
+                  {loading ? '…' : connected ? 'Disconnect' : 'Connect'}
+                </button>
               </div>
-              <button className={`in-btn ${a.connected ? 'in-btn-ghost' : 'in-btn-accent'} in-btn-sm`}>
-                {a.connected ? 'Disconnect' : 'Connect'}
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>
   );
 }
 
-function ApiPanel() {
+function ApiPanel({ apiKey, usage }) {
   const [showKey, setShowKey] = useState(false);
-  const KEY = 'tf_live_sk_a8d72bce1f4e9031...';
+  const KEY = apiKey ? `tf_live_sk_${apiKey.key_hash?.slice(0,16)}...` : '—';
   const MASKED = '••••••••••••••••••••••••••••';
   return (
     <div className="st-panel">
@@ -947,9 +1085,9 @@ function ApiPanel() {
         <div className="st-card-body">
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
             {[
-              { label:'Calls today',     val:'840',     sub:'of 2,000 limit', col:T.g  },
-              { label:'Calls this month', val:'18,402', sub:'of 60,000 limit', col:T.bl },
-              { label:'Avg latency',     val:'42ms',    sub:'Last 7 days', col:T.gn },
+              { label:'Calls today',      val: apiKey ? String(apiKey.calls_today ?? 0)                 : '—', sub:`of ${(apiKey?.calls_today ?? 0) > 0 ? '2,000' : '—'} limit`, col:T.g  },
+              { label:'Calls this month',  val: apiKey ? (apiKey.calls_this_month ?? 0).toLocaleString() : '—', sub:'of 60,000 limit', col:T.bl },
+              { label:'Avg latency',       val: apiKey?.avg_latency_ms ? `${apiKey.avg_latency_ms}ms` : '—', sub:'Last 7 days', col:T.gn },
             ].map(s => (
               <div key={s.label} style={{ background:T.s2, border:`1px solid ${T.br}`, borderRadius:10, padding:'12px 14px' }}>
                 <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', letterSpacing:1, color:T.nt, marginBottom:6 }}>{s.label}</div>
@@ -994,19 +1132,24 @@ function ApiPanel() {
 }
 
 /* ─── Sidebar & Topbar ──────────────────────────────── */
-function Sidebar({ open }) {
+function Sidebar({ open, user = {}, sub, wallet, copyCount = 0 }) {
+  const plan      = sub?.subscription_plans;
+  const ini       = initials(`${user.first_name || ''} ${user.last_name || ''}`);
+  const fullName  = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Loading…';
+  const planLabel = plan ? `${plan.name.charAt(0).toUpperCase() + plan.name.slice(1)} Member` : 'Basic Plan';
+  const portfolioVal = fmtMoney(wallet?.balance ?? 0, wallet?.currency || user.currency || 'USD');
   const NAV = [
     { section:'Markets' },
-    { icon:'ti-layout-dashboard', label:'Dashboard' },
-    { icon:'ti-chart-candlestick', label:'Trading' },
-    { icon:'ti-bulb', label:'Insights' },
+    { href:'/dashboard',    icon:'ti-layout-dashboard',  label:'Dashboard' },
+    { href:'/terminal',     icon:'ti-chart-candlestick', label:'Trading' },
+    { href:'/insights',     icon:'ti-bulb',              label:'Insights' },
     { section:'Social' },
-    { icon:'ti-users', label:'Copy Trading', badge:'3' },
-    { icon:'ti-user-circle', label:'Profile' },
-    { icon:'ti-world', label:'Marketplace' },
+    { href:'/copy-trading', icon:'ti-users',             label:'Copy Trading', badge: copyCount || null },
+    { href:'/profile',      icon:'ti-user-circle',       label:'Profile' },
+    { href:'/market-place', icon:'ti-world',             label:'Marketplace' },
     { section:'Account' },
-    { icon:'ti-settings', label:'Settings', active:true },
-    { icon:'ti-help-circle', label:'Support' },
+    { href:'/settings',     icon:'ti-settings',          label:'Settings', active:true },
+    { href:'/support',      icon:'ti-help-circle',       label:'Support' },
   ];
   return (
     <aside className={`in-sidebar${open ? ' open' : ''}`}>
@@ -1016,14 +1159,14 @@ function Sidebar({ open }) {
       </div>
       <div className="in-sb-pill">
         <div className="in-sb-pill-label"><span className="in-live-dot" />Portfolio Value</div>
-        <div className="in-sb-pill-val">$12,480</div>
-        <div className="in-sb-pill-sub">↑ +$142 today (+1.15%)</div>
+        <div className="in-sb-pill-val">{portfolioVal}</div>
+        <div className="in-sb-pill-sub">Live from wallet</div>
       </div>
       <div className="in-sb-scroll">
         {NAV.map((n, i) => n.section
           ? <div key={i} className="in-sb-section">{n.section}</div>
           : (
-            <a key={i} className={`in-sb-link${n.active ? ' active' : ''}`} href="#">
+            <a key={i} className={`in-sb-link${n.active ? ' active' : ''}`} href={n.href}>
               <i className={`ti ${n.icon}`} />{n.label}
               {n.badge && <span className="in-sb-badge">{n.badge}</span>}
             </a>
@@ -1031,17 +1174,18 @@ function Sidebar({ open }) {
         )}
       </div>
       <div className="in-sb-user">
-        <div className="in-sb-avatar">AR</div>
+        <div className="in-sb-avatar">{ini}</div>
         <div>
-          <div className="in-sb-user-name">Alex Rivera</div>
-          <div className="in-sb-user-role">Pro Member</div>
+          <div className="in-sb-user-name">{fullName}</div>
+          <div className="in-sb-user-role">{planLabel}</div>
         </div>
       </div>
     </aside>
   );
 }
 
-function Topbar({ onMenu }) {
+function Topbar({ onMenu, user = {}, unreadCount = 0 }) {
+  const ini = initials(`${user.first_name || ''} ${user.last_name || ''}`);
   return (
     <header className="in-topbar">
       <div className="in-hamburger" onClick={onMenu}><span /><span /><span /></div>
@@ -1049,9 +1193,9 @@ function Topbar({ onMenu }) {
       <div className="in-tb-icon"><i className="ti ti-search" /></div>
       <div className="in-tb-icon">
         <i className="ti ti-bell" />
-        <span className="in-notif-dot" />
+        {unreadCount > 0 && <span className="in-notif-dot" />}
       </div>
-      <div className="in-tb-avatar">AR</div>
+      <div className="in-tb-avatar">{ini || '?'}</div>
     </header>
   );
 }
@@ -1061,16 +1205,44 @@ export default function Settings() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('profile');
 
+  const { data, loading, error } = useSettingsData();
+
+  const user     = data?.user         || {};
+  const sub      = data?.subscription;
+  const settings = data?.settings     || {};
+
   const panels = {
-    profile:       <ProfilePanel />,
-    security:      <SecurityPanel />,
-    subscription:  <SubscriptionPanel />,
+    profile:       <ProfilePanel user={user} />,
+    security:      <SecurityPanel twoFa={data?.twoFa || []} sessions={data?.sessions || []} />,
+    subscription:  <SubscriptionPanel subscription={sub} usage={data?.usage} />,
     notifications: <NotificationsPanel />,
-    appearance:    <AppearancePanel />,
-    privacy:       <PrivacyPanel />,
-    connected:     <ConnectedPanel />,
-    api:           <ApiPanel />,
+    appearance:    <AppearancePanel settings={settings} />,
+    privacy:       <PrivacyPanel settings={settings} />,
+    connected:     <ConnectedPanel apps={data?.apps || []} />,
+    api:           <ApiPanel apiKey={data?.apiKey} usage={data?.usage} />,
   };
+
+  if (loading) return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'var(--bg)', flexDirection:'column', gap:16 }}>
+        <div style={{ width:40, height:40, border:'3px solid rgba(200,245,96,.2)', borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+        <div style={{ color:'var(--muted)', fontSize:13 }}>Loading settings…</div>
+        <style>{`@keyframes spin { to { transform:rotate(360deg) } }`}</style>
+      </div>
+    </>
+  );
+
+  if (error) return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'var(--bg)', flexDirection:'column', gap:12 }}>
+        <i className="ti ti-alert-circle" style={{ fontSize:32, color:'var(--red)' }} />
+        <div style={{ color:'var(--text)', fontWeight:600 }}>Failed to load settings</div>
+        <div style={{ color:'var(--muted)', fontSize:12 }}>{error}</div>
+      </div>
+    </>
+  );
 
   return (
     <>
@@ -1083,10 +1255,10 @@ export default function Settings() {
       )}
 
       <div className="in-shell">
-        <Sidebar open={sidebarOpen} />
+        <Sidebar open={sidebarOpen} user={user} sub={sub} wallet={data?.wallet} copyCount={data?.copyCount || 0} />
 
         <div className="in-right">
-          <Topbar onMenu={() => setSidebarOpen(v => !v)} />
+          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} unreadCount={data?.unreadCount || 0} />
 
           <main className="in-main">
             <div className="st-layout">

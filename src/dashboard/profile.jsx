@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import supabase from "../supabase";
 
 /* ─── Design tokens (matches existing site shell) ──────────────────── */
 const T = {
@@ -340,6 +341,76 @@ const GLOBAL_CSS = `
   .pf-textarea { resize:vertical; min-height:80px; }
   .pf-field-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 
+  /* Trading Performance stats */
+  .pf-perf-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:14px; }
+  .pf-perf-stat {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:10px; padding:12px 14px; text-align:center;
+  }
+  .pf-perf-stat-val { font-family:var(--mono); font-size:18px; font-weight:700; line-height:1; margin-bottom:4px; }
+  .pf-perf-stat-label { font-size:10px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; }
+  .pf-period-tabs { display:flex; gap:4px; margin-bottom:14px; }
+  .pf-period-tab {
+    padding:4px 10px; border-radius:5px; font-size:11px; font-weight:600;
+    color:var(--muted); background:none; cursor:pointer; border:1px solid transparent; transition:all .15s;
+  }
+  .pf-period-tab:hover { color:var(--text); }
+  .pf-period-tab.active { color:var(--accent); background:var(--accent-dim); border-color:rgba(200,245,96,.2); }
+  .pf-sparkline { display:flex; align-items:flex-end; gap:3px; height:48px; }
+  .pf-spark-bar { flex:1; border-radius:3px 3px 0 0; min-height:4px; transition:opacity .2s; }
+  .pf-spark-bar:hover { opacity:.75; }
+
+  /* Broker connections */
+  .pf-broker-item {
+    display:flex; align-items:center; gap:12px;
+    padding:10px 0; border-bottom:1px solid var(--border);
+  }
+  .pf-broker-item:last-child { border-bottom:none; }
+  .pf-broker-logo {
+    width:36px; height:36px; border-radius:9px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:12px; font-weight:800; flex-shrink:0;
+    border:1px solid var(--border);
+  }
+  .pf-broker-name { font-size:12px; font-weight:700; margin-bottom:2px; }
+  .pf-broker-meta { font-size:10px; color:var(--muted); }
+  .pf-broker-balance { font-family:var(--mono); font-size:12px; font-weight:700; margin-left:auto; text-align:right; }
+  .pf-broker-type { font-size:10px; margin-top:2px; text-align:right; }
+  .pf-live-pill { display:inline-flex; align-items:center; gap:4px; padding:2px 7px; border-radius:4px; font-size:10px; font-weight:700; }
+  .pf-live-pill.live { background:var(--green-dim); color:var(--green); }
+  .pf-live-pill.demo { background:var(--blue-dim); color:var(--blue); }
+
+  /* Connected apps */
+  .pf-apps-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .pf-app-item {
+    background:var(--surface2); border:1px solid var(--border);
+    border-radius:10px; padding:12px; display:flex; align-items:center; gap:10px;
+    transition:border-color .15s;
+  }
+  .pf-app-item:hover { border-color:var(--border2); }
+  .pf-app-icon { width:32px; height:32px; border-radius:8px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }
+  .pf-app-name { font-size:11px; font-weight:700; margin-bottom:2px; }
+  .pf-app-status { font-size:10px; }
+  .pf-app-toggle { margin-left:auto; flex-shrink:0; }
+  .pf-toggle { width:32px; height:18px; border-radius:9px; border:none; cursor:pointer; position:relative; transition:background .2s; flex-shrink:0; }
+  .pf-toggle::after { content:''; position:absolute; width:12px; height:12px; border-radius:50%; background:#fff; top:3px; transition:left .2s; }
+  .pf-toggle.on { background:var(--accent); }
+  .pf-toggle.on::after { left:17px; }
+  .pf-toggle.off { background:var(--border2); }
+  .pf-toggle.off::after { left:3px; }
+
+  /* Transactions */
+  .pf-tx-item {
+    display:flex; align-items:center; gap:12px;
+    padding:10px 0; border-bottom:1px solid var(--border);
+  }
+  .pf-tx-item:last-child { border-bottom:none; }
+  .pf-tx-icon { width:34px; height:34px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-size:16px; flex-shrink:0; }
+  .pf-tx-desc { font-size:12px; font-weight:600; margin-bottom:2px; }
+  .pf-tx-meta { font-size:10px; color:var(--muted); }
+  .pf-tx-amount { font-family:var(--mono); font-size:13px; font-weight:700; margin-left:auto; text-align:right; }
+  .pf-tx-status { font-size:10px; text-align:right; margin-top:2px; }
+
   /* Responsive */
   @media (max-width:1100px) {
     .pf-summary-row { grid-template-columns:repeat(2,1fr); }
@@ -360,76 +431,223 @@ const GLOBAL_CSS = `
   }
 `;
 
-/* ─── Data ───────────────────────────────────────────────────────── */
-const USER = {
-  name: 'Alex',
-  surname: 'Rivera',
-  handle: '@alexrivera',
-  plan: 'Pro',
-  initials: 'AR',
-  bio: 'Passionate about markets and data. Exploring trading strategies on my own terms — one insight at a time.',
-  location: 'New York, USA',
-  joined: 'March 2021',
-  website: 'alexrivera.trade',
-  timezone: 'EST (UTC −5)',
-  followers: 284,
-  following: 61,
+/* ─── Helpers ────────────────────────────────────────────────────── */
+const APP_META = {
+  discord:     { icon:'ti-brand-discord',   bg:'rgba(167,139,250,.12)', col:'#a78bfa' },
+  telegram:    { icon:'ti-brand-telegram',  bg:'rgba(52,211,153,.12)',  col:'#34d399' },
+  slack:       { icon:'ti-brand-slack',     bg:'rgba(245,158,11,.12)',  col:'#f59e0b' },
+  tradingview: { icon:'ti-chart-line',      bg:'rgba(96,165,250,.12)',  col:'#60a5fa' },
+  broker_link: { icon:'ti-plug-connected',  bg:'rgba(200,245,96,.12)',  col:'#c8f560' },
 };
-
-const SUMMARY = [
-  { label: 'Days Active',    value: '847',     sub: 'Since joining',       icon: 'ti-calendar-stats', bg: 'rgba(200,245,96,.12)',  col: '#c8f560' },
-  { label: 'Traders Followed', value: '24',   sub: 'Across all markets',  icon: 'ti-users',          bg: 'rgba(96,165,250,.12)',  col: '#60a5fa' },
-  { label: 'Watchlist Items', value: '38',    sub: 'Assets tracked',      icon: 'ti-eye',            bg: 'rgba(52,211,153,.12)',  col: '#34d399' },
-  { label: 'Alerts Triggered', value: '12',  sub: 'This week',            icon: 'ti-bell-ringing',   bg: 'rgba(245,158,11,.12)',  col: '#f59e0b' },
+const TX_META = {
+  deposit:     { icon:'ti-arrow-down-circle', bg:'rgba(52,211,153,.12)',  col:'#34d399' },
+  withdrawal:  { icon:'ti-arrow-up-circle',   bg:'rgba(248,113,113,.12)', col:'#f87171' },
+  plan_charge: { icon:'ti-credit-card',       bg:'rgba(200,245,96,.12)',  col:'#c8f560' },
+  fee:         { icon:'ti-receipt',           bg:'rgba(96,165,250,.12)',  col:'#60a5fa' },
+  payout:      { icon:'ti-coins',             bg:'rgba(52,211,153,.12)',  col:'#34d399' },
+};
+const ACTIVITY_META = {
+  Watchlist: { icon:'ti-eye',       bg:'rgba(96,165,250,.12)',  col:'#60a5fa' },
+  Alert:     { icon:'ti-bell',      bg:'rgba(245,158,11,.12)',  col:'#f59e0b' },
+  Social:    { icon:'ti-user-plus', bg:'rgba(52,211,153,.12)',  col:'#34d399' },
+  Community: { icon:'ti-message',   bg:'rgba(167,139,250,.12)', col:'#a78bfa' },
+  Signals:   { icon:'ti-star',      bg:'rgba(200,245,96,.12)',  col:'#c8f560' },
+};
+const BROKER_COLORS = [
+  { bg:'rgba(52,211,153,.12)',  col:'#34d399' },
+  { bg:'rgba(96,165,250,.12)',  col:'#60a5fa' },
+  { bg:'rgba(200,245,96,.12)',  col:'#c8f560' },
+  { bg:'rgba(167,139,250,.12)', col:'#a78bfa' },
+  { bg:'rgba(245,158,11,.12)',  col:'#f59e0b' },
 ];
+const PERF_PERIODS = ['30D', '90D', '6M', '1Y', 'all_time'];
+const PERF_LABELS  = { '30D':'30D', '90D':'90D', '6M':'6M', '1Y':'1Y', 'all_time':'All' };
 
-const ACTIVITY = [
-  { icon:'ti-eye',          iconBg:'rgba(96,165,250,.12)',   iconCol:'#60a5fa', title:<>Added <strong>NVDA</strong> to your watchlist</>,          meta:'10 min ago · Watchlist' },
-  { icon:'ti-bell',         iconBg:'rgba(245,158,11,.12)',   iconCol:'#f59e0b', title:<>Price alert triggered on <strong>BTC/USD</strong> — above $67K</>,   meta:'42 min ago · Alert' },
-  { icon:'ti-user-plus',    iconBg:'rgba(52,211,153,.12)',   iconCol:'#34d399', title:<>Started following <strong>Maria Chen</strong></>,           meta:'2h ago · Social' },
-  { icon:'ti-heart',        iconBg:'rgba(248,113,113,.12)',  iconCol:'#f87171', title:<>Liked a signal post by <strong>@tradeflow_kai</strong></>,  meta:'3h ago · Community' },
-  { icon:'ti-message',      iconBg:'rgba(167,139,250,.12)', iconCol:'#a78bfa',  title:<>Commented on <strong>SPX Iron Condor</strong> strategy</>,  meta:'Yesterday · Community' },
-  { icon:'ti-star',         iconBg:'rgba(200,245,96,.12)',   iconCol:'#c8f560', title:<>Saved <strong>Momentum Scalp</strong> to favourites</>,      meta:'2 days ago · Signals' },
-];
+function fmtDate(ts) {
+  if (!ts) return '—';
+  return new Date(ts).toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+}
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diff = (Date.now() - new Date(ts)) / 1000;
+  if (diff < 60)   return 'Just now';
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400)return `${Math.floor(diff/3600)}h ago`;
+  if (diff < 172800)return 'Yesterday';
+  return fmtDate(ts);
+}
+function fmtMoney(n, currency = 'USD') {
+  if (n == null) return '—';
+  return new Intl.NumberFormat('en-US', { style:'currency', currency, maximumFractionDigits:2 }).format(n);
+}
+function initials(name = '') {
+  return name.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase();
+}
 
-const WATCHLIST = [
-  { ticker:'BTC/USD', name:'Bitcoin',        price:'$67,440', chg:'+2.4%', pos:true,  bg:'rgba(245,158,11,.15)', col:'#f59e0b' },
-  { ticker:'ETH/USD', name:'Ethereum',       price:'$3,490',  chg:'+1.8%', pos:true,  bg:'rgba(96,165,250,.15)', col:'#60a5fa' },
-  { ticker:'NVDA',    name:'Nvidia Corp.',   price:'$892.40', chg:'+0.7%', pos:true,  bg:'rgba(52,211,153,.15)', col:'#34d399' },
-  { ticker:'SPX',     name:'S&P 500 Index',  price:'$5,190',  chg:'-0.3%', pos:false, bg:'rgba(200,245,96,.15)', col:'#c8f560' },
-  { ticker:'GLD',     name:'Gold ETF',       price:'$2,295',  chg:'-0.8%', pos:false, bg:'rgba(167,139,250,.15)',col:'#a78bfa' },
-];
+/* ─── Supabase data hook ─────────────────────────────────────────── */
+function useProfileData() {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError]     = useState(null);
 
-const FOLLOWED_TRADERS = [
-  { initials:'MC', bg:'#1d4ed8', name:'Maria Chen',    sub:'Crypto specialist · +38.1% YTD',  roi:'+38.1%', col:'#34d399' },
-  { initials:'KJ', bg:'#7c3aed', name:'Kai Johnson',   sub:'Equities trader · +21.4% YTD',    roi:'+21.4%', col:'#34d399' },
-  { initials:'SP', bg:'#065f46', name:'Sara Park',     sub:'Options writer · +14.9% YTD',     roi:'+14.9%', col:'#c8f560' },
-  { initials:'DL', bg:'#b45309', name:'Dev Lal',       sub:'Macro trader · −2.1% YTD',        roi:'−2.1%',  col:'#f87171' },
-];
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      // Get current session user
+      const { data: { user: authUser }, error: authErr } = await supabase.auth.getUser();
+      if (authErr || !authUser) throw new Error('Not authenticated');
+      const uid = authUser.id;
 
-const NOTIFICATIONS = [
-  { text:<>Your price alert on <strong>ETH/USD</strong> reached $3,500</>, time:'5 min ago',   unread:true  },
-  { text:<><strong>Kai Johnson</strong> published a new signal</>,           time:'1h ago',    unread:true  },
-  { text:<>Your watchlist was updated automatically (3 assets)</>,           time:'3h ago',    unread:false },
-  { text:<>Weekly digest: your top movers ready</>,                          time:'Yesterday', unread:false },
-  { text:<>New feature: AI price alerts now available</>,                    time:'2 days ago',unread:false },
-];
+      // Fire all queries in parallel
+      const [
+        userRes, subRes, activityRes, watchlistRes,
+        followedRes, notifRes, txRes, brokerRes,
+        appsRes, usageRes, perfRes, walletRes,
+      ] = await Promise.all([
+        // 1. User profile
+        supabase.from('users').select('*').eq('id', uid).single(),
+
+        // 2. Active subscription + plan details
+        supabase.from('user_subscriptions')
+          .select('*, subscription_plans(*)')
+          .eq('user_id', uid)
+          .eq('status', 'active')
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+
+        // 3. Recent activity feed
+        supabase.from('user_activity_feed')
+          .select('*')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false })
+          .limit(10),
+
+        // 4. Watchlist — select only columns that exist in portfolio_watchlist
+        supabase.from('portfolio_watchlist')
+          .select('id, symbol, name, position_order, added_at')
+          .eq('user_id', uid)
+          .order('position_order', { ascending: true })
+          .limit(10),
+
+        // 5. Followed traders (copy relationships + trader profiles)
+        supabase.from('copy_relationships')
+          .select('*, trader_profiles(*, users(first_name, last_name, avatar_url))')
+          .eq('copier_id', uid)
+          .eq('status', 'active')
+          .limit(6),
+
+        // 6. Notifications
+        supabase.from('notifications')
+          .select('*')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false })
+          .limit(10),
+
+        // 7. Transactions
+        supabase.from('transactions')
+          .select('*')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: false })
+          .limit(10),
+
+        // 8. Broker connections
+        supabase.from('broker_connections')
+          .select('*')
+          .eq('user_id', uid)
+          .eq('is_active', true)
+          .order('connected_at', { ascending: false }),
+
+        // 9. Connected apps
+        supabase.from('connected_apps')
+          .select('*')
+          .eq('user_id', uid),
+
+        // 10. Usage metrics (current period)
+        supabase.from('usage_metrics')
+          .select('*')
+          .eq('user_id', uid)
+          .order('period_start', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+
+        // 11. Trader profile id — fetched separately; performance queried below
+        supabase.from('trader_profiles')
+          .select('id')
+          .eq('user_id', uid)
+          .maybeSingle(),
+
+        // 12. USD wallet balance
+        supabase.from('wallets')
+          .select('balance, currency')
+          .eq('user_id', uid)
+          .eq('currency', 'USD')
+          .maybeSingle(),
+      ]);
+
+      // Check for critical errors
+      if (userRes.error) throw userRes.error;
+
+      // 11b. Fetch trader performance only if the user has a trader profile
+      const traderProfile = perfRes.data;
+      let performanceData = [];
+      if (traderProfile?.id) {
+        const { data: perfRows } = await supabase
+          .from('trader_performance')
+          .select('*')
+          .eq('trader_id', traderProfile.id)
+          .in('period', PERF_PERIODS)
+          .order('recorded_at', { ascending: false });
+        performanceData = perfRows || [];
+      }
+
+      setData({
+        user:         userRes.data,
+        subscription: subRes.data,
+        activity:     activityRes.data    || [],
+        watchlist:    watchlistRes.data   || [],
+        followed:     followedRes.data    || [],
+        notifications: notifRes.data      || [],
+        transactions: txRes.data          || [],
+        brokers:      brokerRes.data      || [],
+        apps:         appsRes.data        || [],
+        usage:        usageRes.data,
+        performance:  performanceData,
+        wallet:       walletRes.data,
+      });
+    } catch (e) {
+      setError(e.message || 'Failed to load profile');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  return { data, loading, error, reload: load };
+}
 
 /* ─── Sub-components ──────────────────────────────────────────────── */
 
-function Sidebar({ open }) {
+function Sidebar({ open, user = {}, sub, wallet, followed = [] }) {
+  const plan = sub?.subscription_plans;
+  const ini  = initials(`${user.first_name || ''} ${user.last_name || ''}`);
+  const fullName = `${user.first_name || ''} ${user.last_name || ''}`.trim() || 'Loading…';
+  const planLabel = plan ? `${plan.name.charAt(0).toUpperCase()+plan.name.slice(1)} Member` : 'Basic Plan';
+  const portfolioVal = fmtMoney(wallet?.balance ?? 0, wallet?.currency || user.currency || 'USD');
   const NAV = [
     { section:'Markets' },
-    { icon:'ti-layout-dashboard', label:'Dashboard' },
-    { icon:'ti-chart-candlestick', label:'Trading' },
-    { icon:'ti-bulb', label:'Insights' },
+    { href:'/dashboard', icon:'ti-layout-dashboard', label:'Dashboard' },
+    { href:'/terminal', icon:'ti-chart-candlestick', label:'Trading' },
+    { href:'/insights', icon:'ti-bulb', label:'Insights' },
     { section:'Social' },
-    { icon:'ti-users', label:'Copy Trading', badge:'3' },
-    { icon:'ti-user-circle', label:'Profile', active:true },
-    { icon:'ti-world', label:'Marketplace' },
+    { href:'/copy-trading', icon:'ti-users', label:'Copy Trading', badge: followed?.length || null },
+    { href:'/profile', icon:'ti-user-circle', label:'Profile', active:true },
+    { href:'/market-place', icon:'ti-world', label:'Marketplace' },
     { section:'Account' },
-    { icon:'ti-settings', label:'Settings' },
-    { icon:'ti-help-circle', label:'Support' },
+    { href:'/settings', icon:'ti-settings', label:'Settings' },
+    { href:'/support', icon:'ti-help-circle', label:'Support' },
   ];
   return (
     <aside className={`in-sidebar${open ? ' open' : ''}`}>
@@ -439,14 +657,14 @@ function Sidebar({ open }) {
       </div>
       <div className="in-sb-pill">
         <div className="in-sb-pill-label"><span className="in-live-dot" />Portfolio Value</div>
-        <div className="in-sb-pill-val">$12,480</div>
-        <div className="in-sb-pill-sub">↑ +$142 today (+1.15%)</div>
+        <div className="in-sb-pill-val">{portfolioVal}</div>
+        <div className="in-sb-pill-sub">Live from broker</div>
       </div>
       <div className="in-sb-scroll">
         {NAV.map((n, i) => n.section
           ? <div key={i} className="in-sb-section">{n.section}</div>
           : (
-            <a key={i} className={`in-sb-link${n.active ? ' active' : ''}`} href="#">
+            <a key={i} className={`in-sb-link${n.active ? ' active' : ''}`} href={n.href}>
               <i className={`ti ${n.icon}`} />{n.label}
               {n.badge && <span className="in-sb-badge">{n.badge}</span>}
             </a>
@@ -454,17 +672,19 @@ function Sidebar({ open }) {
         )}
       </div>
       <div className="in-sb-user">
-        <div className="in-sb-avatar">AR</div>
+        <div className="in-sb-avatar">{ini}</div>
         <div>
-          <div className="in-sb-user-name">Alex Rivera</div>
-          <div className="in-sb-user-role">Pro Member</div>
+          <div className="in-sb-user-name">{fullName}</div>
+          <div className="in-sb-user-role">{planLabel}</div>
         </div>
       </div>
     </aside>
   );
 }
 
-function Topbar({ onMenu }) {
+function Topbar({ onMenu, user = {}, notifications = [] }) {
+  const ini     = initials(`${user.first_name || ''} ${user.last_name || ''}`);
+  const unread  = notifications.filter(n => !n.is_read).length;
   return (
     <header className="in-topbar">
       <div className="in-hamburger" onClick={onMenu}><span /><span /><span /></div>
@@ -472,48 +692,56 @@ function Topbar({ onMenu }) {
       <div className="in-tb-icon"><i className="ti ti-search" /></div>
       <div className="in-tb-icon">
         <i className="ti ti-bell" />
-        <span className="in-notif-dot" />
+        {unread > 0 && <span className="in-notif-dot" />}
       </div>
-      <div className="in-tb-avatar">AR</div>
+      <div className="in-tb-avatar">{ini || '?'}</div>
     </header>
   );
 }
 
-function ActivityTab() {
+function ActivityTab({ items = [] }) {
+  if (!items.length) return <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>No activity yet.</div>;
   return (
     <div>
-      {ACTIVITY.map((a, i) => (
-        <div key={i} className="pf-activity-item">
-          <div className="pf-activity-icon" style={{ background:a.iconBg, color:a.iconCol }}>
-            <i className={`ti ${a.icon}`} />
-          </div>
-          <div className="pf-activity-text">
-            <div className="pf-activity-title">{a.title}</div>
-            <div className="pf-activity-meta">
-              <i className="ti ti-clock" style={{ fontSize:11 }} />{a.meta}
+      {items.map((a, i) => {
+        const cat  = a.category || 'Community';
+        const meta = ACTIVITY_META[cat] || ACTIVITY_META.Community;
+        return (
+          <div key={i} className="pf-activity-item">
+            <div className="pf-activity-icon" style={{ background:meta.bg, color:meta.col }}>
+              <i className={`ti ${meta.icon}`} />
+            </div>
+            <div className="pf-activity-text">
+              <div className="pf-activity-title">{a.description || a.title}</div>
+              <div className="pf-activity-meta">
+                <i className="ti ti-clock" style={{ fontSize:11 }} />
+                {timeAgo(a.created_at)} · {cat}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
 
-function WatchlistTab() {
+function WatchlistTab({ items = [] }) {
+  const COLORS = ['rgba(245,158,11,.15)','rgba(96,165,250,.15)','rgba(52,211,153,.15)','rgba(200,245,96,.15)','rgba(167,139,250,.15)'];
+  const TEXT   = ['#f59e0b','#60a5fa','#34d399','#c8f560','#a78bfa'];
+  if (!items.length) return <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>Your watchlist is empty.</div>;
   return (
     <div>
-      {WATCHLIST.map((w, i) => (
+      {items.map((w, i) => (
         <div key={i} className="pf-watch-item">
-          <div className="pf-watch-icon" style={{ background:w.bg, color:w.col }}>
-            {w.ticker.slice(0,2)}
+          <div className="pf-watch-icon" style={{ background:COLORS[i%COLORS.length], color:TEXT[i%TEXT.length] }}>
+            {(w.symbol || '??').slice(0,2)}
           </div>
           <div style={{ flex:1, minWidth:0 }}>
-            <div className="pf-watch-ticker">{w.ticker}</div>
-            <div className="pf-watch-name">{w.name}</div>
+            <div className="pf-watch-ticker">{w.symbol}</div>
+            <div className="pf-watch-name">{w.name || w.symbol}</div>
           </div>
-          <div>
-            <div className="pf-watch-price">{w.price}</div>
-            <div className="pf-watch-chg" style={{ color:w.pos ? '#34d399' : '#f87171' }}>{w.chg}</div>
+          <div style={{ fontSize:10, color:'var(--muted)' }}>
+            Added {fmtDate(w.added_at)}
           </div>
         </div>
       ))}
@@ -521,17 +749,18 @@ function WatchlistTab() {
   );
 }
 
-function NotificationsTab() {
+function NotificationsTab({ items = [] }) {
+  if (!items.length) return <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>No notifications.</div>;
   return (
     <div>
-      {NOTIFICATIONS.map((n, i) => (
+      {items.map((n, i) => (
         <div key={i} className="pf-notif-item">
           <div className="pf-notif-dot-wrap">
-            <div className={n.unread ? 'pf-notif-unread' : 'pf-notif-read'} />
+            <div className={!n.is_read ? 'pf-notif-unread' : 'pf-notif-read'} />
           </div>
           <div style={{ flex:1 }}>
-            <div className="pf-notif-text">{n.text}</div>
-            <div className="pf-notif-time">{n.time}</div>
+            <div className="pf-notif-text">{n.body || n.message}</div>
+            <div className="pf-notif-time">{timeAgo(n.created_at)}</div>
           </div>
         </div>
       ))}
@@ -539,7 +768,37 @@ function NotificationsTab() {
   );
 }
 
-function EditModal({ onClose }) {
+function TransactionsTab({ items = [] }) {
+  if (!items.length) return <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>No transactions found.</div>;
+  return (
+    <div>
+      {items.map((tx, i) => {
+        const m       = TX_META[tx.type] || TX_META.fee;
+        const isCredit = tx.type === 'deposit' || tx.type === 'payout';
+        const sign    = isCredit ? '+' : '−';
+        const amtCol  = isCredit ? '#34d399' : '#f87171';
+        const stCol   = tx.status === 'completed' ? '#34d399' : tx.status === 'failed' ? '#f87171' : '#f59e0b';
+        return (
+          <div key={i} className="pf-tx-item">
+            <div className="pf-tx-icon" style={{ background:m.bg, color:m.col }}>
+              <i className={`ti ${m.icon}`} />
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div className="pf-tx-desc">{tx.description || tx.type?.replace('_',' ')}</div>
+              <div className="pf-tx-meta">{fmtDate(tx.created_at)} · {tx.currency}</div>
+            </div>
+            <div>
+              <div className="pf-tx-amount" style={{ color:amtCol }}>{sign}{fmtMoney(Math.abs(tx.amount), tx.currency)}</div>
+              <div className="pf-tx-status" style={{ color:stCol }}>{tx.status?.charAt(0).toUpperCase() + tx.status?.slice(1)}</div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function EditModal({ onClose, user = {} }) {
   return (
     <div className="pf-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="pf-modal">
@@ -551,38 +810,42 @@ function EditModal({ onClose }) {
           <div className="pf-field-row">
             <div className="pf-field">
               <label>First Name</label>
-              <input className="pf-input" defaultValue="Alex" />
+              <input className="pf-input" defaultValue={user.first_name || ''} />
             </div>
             <div className="pf-field">
               <label>Last Name</label>
-              <input className="pf-input" defaultValue="Rivera" />
+              <input className="pf-input" defaultValue={user.last_name || ''} />
             </div>
           </div>
           <div className="pf-field">
             <label>Handle</label>
-            <input className="pf-input" defaultValue="@alexrivera" />
+            <input className="pf-input" defaultValue={user.handle || ''} />
           </div>
           <div className="pf-field">
             <label>Bio</label>
-            <textarea className="pf-input pf-textarea" defaultValue={USER.bio} />
+            <textarea className="pf-input pf-textarea" defaultValue={user.bio || ''} />
           </div>
           <div className="pf-field-row">
             <div className="pf-field">
               <label>Location</label>
-              <input className="pf-input" defaultValue="New York, USA" />
+              <input className="pf-input" defaultValue={user.location || ''} />
             </div>
             <div className="pf-field">
               <label>Website</label>
-              <input className="pf-input" defaultValue="alexrivera.trade" />
+              <input className="pf-input" defaultValue={user.website || ''} />
             </div>
           </div>
           <div className="pf-field">
             <label>Timezone</label>
-            <select className="pf-input">
+            <select className="pf-input" defaultValue={user.timezone || ''}>
               <option>EST (UTC −5)</option>
               <option>PST (UTC −8)</option>
               <option>UTC</option>
               <option>CET (UTC +1)</option>
+              <option>WAT (UTC +1)</option>
+              <option>EAT (UTC +3)</option>
+              <option>IST (UTC +5:30)</option>
+              <option>SGT (UTC +8)</option>
             </select>
           </div>
         </div>
@@ -602,18 +865,80 @@ export default function Profile() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeTab, setActiveTab]     = useState('activity');
   const [editOpen, setEditOpen]       = useState(false);
+  const [perfPeriod, setPerfPeriod]   = useState('30D');
+
+  const { data, loading, error } = useProfileData();
 
   const TABS = [
     { key:'activity',      label:'Activity',      icon:'ti-activity'  },
     { key:'watchlist',     label:'Watchlist',     icon:'ti-eye'       },
     { key:'notifications', label:'Notifications', icon:'ti-bell'      },
+    { key:'transactions',  label:'Transactions',  icon:'ti-receipt'   },
   ];
+
+  // ── Derived values from live data ──────────────────────────────────
+  const user         = data?.user         || {};
+  const sub          = data?.subscription;
+  const plan         = sub?.subscription_plans;
+  const usage        = data?.usage;
+  const performance  = data?.performance  || [];
+  const brokers      = data?.brokers      || [];
+  const apps         = data?.apps         || [];
+  const followed     = data?.followed     || [];
+
+  const userInitials = initials(`${user.first_name || ''} ${user.last_name || ''}`);
+  const fullName     = `${user.first_name || ''} ${user.last_name || ''}`.trim();
+  const joinedDate   = user.created_at ? new Date(user.created_at).toLocaleDateString('en-US', { month:'long', year:'numeric' }) : '—';
+
+  // Days active
+  const daysActive = user.created_at
+    ? Math.floor((Date.now() - new Date(user.created_at)) / 86400000)
+    : '—';
+
+  // Summary cards from real data
+  const SUMMARY = [
+    { label:'Days Active',       value: String(daysActive),            sub:'Since joining',      icon:'ti-calendar-stats', bg:'rgba(200,245,96,.12)',  col:'#c8f560' },
+    { label:'Traders Followed',  value: String(followed.length),       sub:'Active copy trades', icon:'ti-users',          bg:'rgba(96,165,250,.12)',  col:'#60a5fa' },
+    { label:'Watchlist Items',   value: String(data?.watchlist?.length ?? '—'), sub:'Assets tracked', icon:'ti-eye', bg:'rgba(52,211,153,.12)', col:'#34d399' },
+    { label:'Alerts Used',       value: String(usage?.alerts_used ?? '—'), sub:'This period',    icon:'ti-bell-ringing',   bg:'rgba(245,158,11,.12)',  col:'#f59e0b' },
+  ];
+
+  // Performance for selected period
+  const perfEntry   = performance.find(p => p.period === perfPeriod) || null;
+  const sparkData   = perfEntry?.sparkline || [];
+  const maxSpark    = sparkData.length ? Math.max(...sparkData) : 1;
+  const roiPositive = (perfEntry?.roi_pct ?? 0) >= 0;
+  const roiCol      = roiPositive ? '#34d399' : '#f87171';
+  const fmtPct      = (v) => v != null ? `${v >= 0 ? '+' : ''}${Number(v).toFixed(1)}%` : '—';
+
+  // Loading / error states
+  if (loading) return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'var(--bg)', flexDirection:'column', gap:16 }}>
+        <div style={{ width:40, height:40, border:`3px solid rgba(200,245,96,.2)`, borderTopColor:'var(--accent)', borderRadius:'50%', animation:'spin 0.8s linear infinite' }} />
+        <div style={{ color:'var(--muted)', fontSize:13 }}>Loading your profile…</div>
+        <style>{`@keyframes spin { to { transform:rotate(360deg) } }`}</style>
+      </div>
+    </>
+  );
+
+  if (error) return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100vh', background:'var(--bg)', flexDirection:'column', gap:12 }}>
+        <i className="ti ti-alert-circle" style={{ fontSize:32, color:'var(--red)' }} />
+        <div style={{ color:'var(--text)', fontWeight:600 }}>Failed to load profile</div>
+        <div style={{ color:'var(--muted)', fontSize:12 }}>{error}</div>
+      </div>
+    </>
+  );
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
 
-      {editOpen && <EditModal onClose={() => setEditOpen(false)} />}
+      {editOpen && <EditModal user={user} onClose={() => setEditOpen(false)} />}
 
       {sidebarOpen && (
         <div onClick={() => setSidebarOpen(false)} style={{
@@ -622,10 +947,10 @@ export default function Profile() {
       )}
 
       <div className="in-shell">
-        <Sidebar open={sidebarOpen} />
+        <Sidebar open={sidebarOpen} user={user} sub={sub} wallet={data?.wallet} followed={followed} />
 
         <div className="in-right">
-          <Topbar onMenu={() => setSidebarOpen(v => !v)} />
+          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} notifications={data?.notifications || []} />
 
           <main className="in-main">
 
@@ -646,19 +971,25 @@ export default function Profile() {
             {/* Identity row */}
             <div className="pf-identity">
               <div className="pf-avatar-wrap">
-                <div className="pf-avatar">AR</div>
+                <div className="pf-avatar">
+                  {user.avatar_url
+                    ? <img src={user.avatar_url} style={{ width:'100%', height:'100%', borderRadius:'50%', objectFit:'cover' }} alt="" />
+                    : userInitials}
+                </div>
                 <div className="pf-avatar-status" />
               </div>
               <div className="pf-identity-info">
-                <div className="pf-name">Alex <em>Rivera</em></div>
+                <div className="pf-name">{user.first_name} <em>{user.last_name}</em></div>
                 <div className="pf-handle">
-                  {USER.handle}
-                  <span className="in-badge in-badge-gold"><i className="ti ti-shield-check" style={{ fontSize:9, marginRight:3 }} />Verified</span>
+                  {user.handle || `@${(user.first_name || '').toLowerCase()}`}
+                  {user.is_verified && (
+                    <span className="in-badge in-badge-gold"><i className="ti ti-shield-check" style={{ fontSize:9, marginRight:3 }} />Verified</span>
+                  )}
                 </div>
                 <div className="pf-tags">
-                  <span className="in-badge in-badge-gold">Pro Member</span>
-                  <span className="in-badge in-badge-blue">{USER.followers} Followers</span>
-                  <span className="in-badge in-badge-muted">Following {USER.following}</span>
+                  <span className="in-badge in-badge-gold">{plan?.name ? `${plan.name.charAt(0).toUpperCase()+plan.name.slice(1)} Member` : 'Free'}</span>
+                  {user.is_public && <span className="in-badge in-badge-muted"><i className="ti ti-world" style={{ fontSize:9, marginRight:3 }} />Public</span>}
+                  {user.trading_goal && <span className="in-badge in-badge-blue">{user.trading_goal}</span>}
                 </div>
               </div>
               <div className="pf-identity-actions">
@@ -688,7 +1019,7 @@ export default function Profile() {
               {/* Left column */}
               <div className="pf-left">
 
-                {/* Activity / Watchlist / Notifications */}
+                {/* Tabs card */}
                 <div className="pf-card">
                   <div className="pf-card-head">
                     <div className="pf-tabs">
@@ -700,9 +1031,60 @@ export default function Profile() {
                     </div>
                   </div>
                   <div className="pf-card-body">
-                    {activeTab === 'activity'      && <ActivityTab />}
-                    {activeTab === 'watchlist'     && <WatchlistTab />}
-                    {activeTab === 'notifications' && <NotificationsTab />}
+                    {activeTab === 'activity'      && <ActivityTab      items={data?.activity}      />}
+                    {activeTab === 'watchlist'     && <WatchlistTab     items={data?.watchlist}     />}
+                    {activeTab === 'notifications' && <NotificationsTab items={data?.notifications} />}
+                    {activeTab === 'transactions'  && <TransactionsTab  items={data?.transactions}  />}
+                  </div>
+                </div>
+
+                {/* Trading Performance */}
+                <div className="pf-card">
+                  <div className="pf-card-head">
+                    <div className="pf-card-title"><i className="ti ti-chart-bar" />Trading Performance</div>
+                    <div className="pf-period-tabs" style={{ marginBottom:0 }}>
+                      {PERF_PERIODS.map(p => (
+                        <button key={p} className={`pf-period-tab${perfPeriod === p ? ' active' : ''}`} onClick={() => setPerfPeriod(p)}>
+                          {PERF_LABELS[p]}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="pf-card-body">
+                    {perfEntry ? (
+                      <>
+                        <div className="pf-perf-grid">
+                          <div className="pf-perf-stat">
+                            <div className="pf-perf-stat-val" style={{ color:roiCol }}>{fmtPct(perfEntry.roi_pct)}</div>
+                            <div className="pf-perf-stat-label">Return</div>
+                          </div>
+                          <div className="pf-perf-stat">
+                            <div className="pf-perf-stat-val" style={{ color:'#60a5fa' }}>{perfEntry.win_rate_pct != null ? `${perfEntry.win_rate_pct}%` : '—'}</div>
+                            <div className="pf-perf-stat-label">Win Rate</div>
+                          </div>
+                          <div className="pf-perf-stat">
+                            <div className="pf-perf-stat-val" style={{ color:'#f87171' }}>{perfEntry.max_drawdown_pct != null ? `−${perfEntry.max_drawdown_pct}%` : '—'}</div>
+                            <div className="pf-perf-stat-label">Max Drawdown</div>
+                          </div>
+                          <div className="pf-perf-stat">
+                            <div className="pf-perf-stat-val" style={{ color:'#a78bfa' }}>{perfEntry.total_trades ?? '—'}</div>
+                            <div className="pf-perf-stat-label">Total Trades</div>
+                          </div>
+                        </div>
+                        {sparkData.length > 0 && (
+                          <div style={{ marginBottom:6 }}>
+                            <div style={{ fontSize:10, fontWeight:600, color:'var(--muted)', textTransform:'uppercase', letterSpacing:'1px', marginBottom:8 }}>Equity Curve</div>
+                            <div className="pf-sparkline">
+                              {sparkData.map((v, i) => (
+                                <div key={i} className="pf-spark-bar" style={{ height:`${(v/maxSpark)*100}%`, background:roiCol, opacity: 0.6 + (i/sparkData.length)*0.4 }} />
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>No performance data for this period.</div>
+                    )}
                   </div>
                 </div>
 
@@ -713,21 +1095,35 @@ export default function Profile() {
                     <a href="#" className="in-btn in-btn-ghost in-btn-sm">View all</a>
                   </div>
                   <div className="pf-card-body">
-                    {FOLLOWED_TRADERS.map((f, i) => (
-                      <div key={i} className="pf-trader-item">
-                        <div className="pf-trader-avatar" style={{ background:f.bg, color:'#fff' }}>{f.initials}</div>
-                        <div>
-                          <div className="pf-trader-name">{f.name}</div>
-                          <div className="pf-trader-sub">{f.sub}</div>
+                    {followed.length === 0 && (
+                      <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>You're not copying any traders yet.</div>
+                    )}
+                    {followed.map((rel, i) => {
+                      const tp   = rel.trader_profiles || {};
+                      const tu   = tp.users || {};
+                      const name = tp.display_name || `${tu.first_name || ''} ${tu.last_name || ''}`.trim() || tp.handle || '—';
+                      const ini  = initials(name);
+                      const BGCOLS = ['#1d4ed8','#7c3aed','#065f46','#b45309','#1e3a5f'];
+                      const roi  = tp.badge_label ? tp.badge_label : '—';
+                      const roiPositive = rel.realised_gain >= 0;
+                      return (
+                        <div key={i} className="pf-trader-item">
+                          <div className="pf-trader-avatar" style={{ background:BGCOLS[i%BGCOLS.length], color:'#fff' }}>{ini}</div>
+                          <div>
+                            <div className="pf-trader-name">{name}</div>
+                            <div className="pf-trader-sub">{tp.market || '—'} · {fmtMoney(rel.allocated_amount, rel.currency)} allocated</div>
+                          </div>
+                          <div className="pf-trader-roi" style={{ color: roiPositive ? '#34d399' : '#f87171' }}>
+                            {rel.realised_gain != null ? fmtMoney(rel.realised_gain, rel.currency) : '—'}
+                          </div>
+                          <div className="pf-trader-action">
+                            <button className="in-btn in-btn-ghost in-btn-sm">
+                              <i className="ti ti-copy" /> Copy
+                            </button>
+                          </div>
                         </div>
-                        <div className="pf-trader-roi" style={{ color:f.col }}>{f.roi}</div>
-                        <div className="pf-trader-action">
-                          <button className="in-btn in-btn-ghost in-btn-sm">
-                            <i className="ti ti-copy" /> Copy
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
 
@@ -736,7 +1132,7 @@ export default function Profile() {
               {/* Right column */}
               <div className="pf-right">
 
-                {/* Current plan */}
+                {/* Subscription */}
                 <div className="pf-card">
                   <div className="pf-card-head">
                     <div className="pf-card-title"><i className="ti ti-credit-card" />Subscription</div>
@@ -745,8 +1141,11 @@ export default function Profile() {
                     <div className="pf-plan-card">
                       <div className="pf-plan-icon">⚡</div>
                       <div>
-                        <div className="pf-plan-name">Pro Plan</div>
-                        <div className="pf-plan-desc">Renews Jun 15, 2026 · $29/mo</div>
+                        <div className="pf-plan-name">{plan ? `${plan.name.charAt(0).toUpperCase()+plan.name.slice(1)} Plan` : 'Free Plan'}</div>
+                        <div className="pf-plan-desc">
+                          {sub?.current_period_end ? `Renews ${fmtDate(sub.current_period_end)}` : 'No active subscription'}
+                          {plan?.monthly_price ? ` · $${plan.monthly_price}/mo` : ''}
+                        </div>
                       </div>
                       <div className="pf-plan-upgrade">
                         <button className="in-btn in-btn-ghost in-btn-sm">Manage</button>
@@ -754,17 +1153,89 @@ export default function Profile() {
                     </div>
                     <div style={{ marginTop:14, display:'grid', gridTemplateColumns:'1fr 1fr', gap:8 }}>
                       {[
-                        { label:'Alerts/month', used:12, total:50  },
-                        { label:'Watchlist spots', used:38, total:100 },
-                      ].map(u => (
-                        <div key={u.label} style={{ background:T.s2, border:`1px solid ${T.br}`, borderRadius:10, padding:'10px 12px' }}>
-                          <div style={{ fontSize:10, color:T.nt, marginBottom:6, fontWeight:600 }}>{u.label}</div>
-                          <div style={{ height:4, background:T.br2, borderRadius:4, overflow:'hidden', marginBottom:6 }}>
-                            <div style={{ height:'100%', width:`${(u.used/u.total)*100}%`, background:T.g, borderRadius:4 }} />
+                        { label:'Alerts used',     used: usage?.alerts_used    ?? 0, total: plan?.max_alerts     ?? '∞' },
+                        { label:'Watchlist spots', used: usage?.watchlist_used ?? 0, total: plan?.max_watchlist  ?? '∞' },
+                      ].map(u => {
+                        const pct = typeof u.total === 'number' ? (u.used / u.total) * 100 : 0;
+                        return (
+                          <div key={u.label} style={{ background:T.s2, border:`1px solid ${T.br}`, borderRadius:10, padding:'10px 12px' }}>
+                            <div style={{ fontSize:10, color:T.nt, marginBottom:6, fontWeight:600 }}>{u.label}</div>
+                            <div style={{ height:4, background:T.br2, borderRadius:4, overflow:'hidden', marginBottom:6 }}>
+                              <div style={{ height:'100%', width:`${Math.min(pct, 100)}%`, background:T.g, borderRadius:4 }} />
+                            </div>
+                            <div style={{ fontSize:11, fontFamily:T.mono, color:T.gr }}>{u.used} <span style={{ color:T.nt }}>/ {u.total}</span></div>
                           </div>
-                          <div style={{ fontSize:11, fontFamily:T.mono, color:T.gr }}>{u.used} <span style={{ color:T.nt }}>/ {u.total}</span></div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Broker Connections */}
+                <div className="pf-card">
+                  <div className="pf-card-head">
+                    <div className="pf-card-title"><i className="ti ti-plug-connected" />Broker Connections</div>
+                    <button className="in-btn in-btn-ghost in-btn-sm"><i className="ti ti-plus" /> Add</button>
+                  </div>
+                  <div className="pf-card-body">
+                    {brokers.length === 0 && (
+                      <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>No broker connected yet.</div>
+                    )}
+                    {brokers.map((b, i) => {
+                      const { bg, col } = BROKER_COLORS[i % BROKER_COLORS.length];
+                      const ini = (b.broker_name || b.broker_id || '??').split(' ').map(w=>w[0]).join('').slice(0,2).toUpperCase();
+                      return (
+                        <div key={i} className="pf-broker-item">
+                          <div className="pf-broker-logo" style={{ background:bg, color:col }}>{ini}</div>
+                          <div style={{ flex:1, minWidth:0 }}>
+                            <div className="pf-broker-name">{b.broker_name}</div>
+                            <div className="pf-broker-meta">{b.platform} · {b.server_name}</div>
+                          </div>
+                          <div>
+                            <div className="pf-broker-balance" style={{ color:col }}>{fmtMoney(b.balance, b.currency)}</div>
+                            <div className="pf-broker-type">
+                              <span className={`pf-live-pill ${b.account_type}`}>
+                                {b.account_type === 'live' ? '● Live' : '○ Demo'}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                      ))}
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Connected Apps */}
+                <div className="pf-card">
+                  <div className="pf-card-head">
+                    <div className="pf-card-title"><i className="ti ti-apps" />Connected Apps</div>
+                  </div>
+                  <div className="pf-card-body">
+                    {apps.length === 0 && (
+                      <div style={{ color:'var(--muted)', fontSize:13, padding:'8px 0' }}>No apps connected.</div>
+                    )}
+                    <div className="pf-apps-grid">
+                      {apps.map((app, i) => {
+                        const key  = (app.app_name || '').toLowerCase();
+                        const meta = APP_META[key] || { icon:'ti-plug', bg:'rgba(100,116,139,.12)', col:'#64748b' };
+                        const name = app.app_name ? app.app_name.charAt(0).toUpperCase() + app.app_name.slice(1) : '—';
+                        return (
+                          <div key={i} className="pf-app-item">
+                            <div className="pf-app-icon" style={{ background:meta.bg, color:meta.col }}>
+                              <i className={`ti ${meta.icon}`} />
+                            </div>
+                            <div style={{ flex:1, minWidth:0 }}>
+                              <div className="pf-app-name">{name}</div>
+                              <div className="pf-app-status" style={{ color: app.is_connected ? 'var(--green)' : 'var(--muted)' }}>
+                                {app.is_connected ? 'Connected' : 'Disconnected'}
+                              </div>
+                            </div>
+                            <div className="pf-app-toggle">
+                              <button className={`pf-toggle ${app.is_connected ? 'on' : 'off'}`} />
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 </div>
@@ -778,12 +1249,13 @@ export default function Profile() {
                     </button>
                   </div>
                   <div className="pf-card-body">
-                    <p style={{ fontSize:13, color:T.nt, lineHeight:1.65, marginBottom:16 }}>{USER.bio}</p>
+                    <p style={{ fontSize:13, color:T.nt, lineHeight:1.65, marginBottom:16 }}>{user.bio || 'No bio set yet.'}</p>
                     {[
-                      { icon:'ti-map-pin',  label:'Location', val:USER.location  },
-                      { icon:'ti-calendar', label:'Joined',   val:USER.joined    },
-                      { icon:'ti-world',    label:'Website',  val:USER.website   },
-                      { icon:'ti-clock',    label:'Timezone', val:USER.timezone  },
+                      { icon:'ti-map-pin',  label:'Location', val: user.location  || '—' },
+                      { icon:'ti-calendar', label:'Joined',   val: joinedDate             },
+                      { icon:'ti-world',    label:'Website',  val: user.website   || '—' },
+                      { icon:'ti-clock',    label:'Timezone', val: user.timezone  || '—' },
+                      { icon:'ti-flag',     label:'Country',  val: user.country_name || '—' },
                     ].map(r => (
                       <div key={r.label} className="pf-info-row">
                         <i className={`ti ${r.icon}`} />
@@ -808,8 +1280,8 @@ export default function Profile() {
                     <button className="in-btn in-btn-ghost in-btn-sm" style={{ justifyContent:'flex-start', width:'100%' }}>
                       <i className="ti ti-lock" /> Change Password
                     </button>
-                    <button className="in-btn in-btn-ghost in-btn-sm" style={{ justifyContent:'flex-start', width:'100%' }}>
-                      <i className="ti ti-eye-off" /> Make Profile Private
+                    <button className="in-btn in-btn-ghost in-btn-sm" style={{ justifyContent:'flex-start', width:'100%' }} onClick={() => setEditOpen(true)}>
+                      <i className="ti ti-eye-off" /> {user.is_public ? 'Make Profile Private' : 'Make Profile Public'}
                     </button>
                     <button className="in-btn in-btn-danger in-btn-sm" style={{ justifyContent:'flex-start', width:'100%' }}>
                       <i className="ti ti-trash" /> Delete Account

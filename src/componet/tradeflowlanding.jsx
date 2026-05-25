@@ -338,18 +338,18 @@ const TICKER = [
 ];
 
 const TRADERS = [
-  { id:1, name:"Alexei Voronov", handle:"@voronov_trades", roi:"+347%", monthly:"+28.4%", dd:"4.2%", followers:"12.4K", win:"73%", spark:[30,45,38,55,42,68,60,78,72,95], initials:"AV", bg:"#1A2A4A", star:true },
-  { id:2, name:"Priya Sharma",   handle:"@psharma_fx",     roi:"+218%", monthly:"+19.1%", dd:"2.8%", followers:"8.7K",  win:"81%", spark:[40,35,50,46,60,55,72,68,80,88], initials:"PS", bg:"#1A3A2A" },
-  { id:3, name:"Marcus Webb",    handle:"@webb_quant",     roi:"+412%", monthly:"+31.7%", dd:"5.6%", followers:"21.1K", win:"69%", spark:[20,38,30,55,65,58,78,82,70,98], initials:"MW", bg:"#2A1A3A" },
+  { id:"alexei-voronov",  name:"Alexei Voronov", handle:"@voronov_trades", roi:"+347%", monthly:"+28.4%", dd:"4.2%", followers:"12.4K", win:"73%", spark:[30,45,38,55,42,68,60,78,72,95], initials:"AV", bg:"#1A2A4A", star:true },
+  { id:"priya-sharma",    name:"Priya Sharma",   handle:"@psharma_fx",     roi:"+218%", monthly:"+19.1%", dd:"2.8%", followers:"8.7K",  win:"81%", spark:[40,35,50,46,60,55,72,68,80,88], initials:"PS", bg:"#1A3A2A" },
+  { id:"marcus-webb",     name:"Marcus Webb",    handle:"@webb_quant",     roi:"+412%", monthly:"+31.7%", dd:"5.6%", followers:"21.1K", win:"69%", spark:[20,38,30,55,65,58,78,82,70,98], initials:"MW", bg:"#2A1A3A" },
 ];
 
 const FEATURES = [
-  { icon:"◎", title:"AI Copy Trading",     desc:"Smart algorithms mirror elite traders' moves with adjustable risk controls and position sizing." },
-  { icon:"◈", title:"Portfolio Analytics", desc:"Deep metrics: Sharpe ratio, max drawdown, correlation heatmaps, and P&L attribution by strategy." },
-  { icon:"◇", title:"Hire Pro Traders",    desc:"Curated marketplace of verified traders. Review audited track records before allocating capital." },
-  { icon:"◉", title:"Risk Management",     desc:"Set stop-loss thresholds, daily loss limits, and exposure caps at account or per-trader level." },
-  { icon:"▣", title:"Multi-Asset Support", desc:"Trade crypto, forex, stocks, and commodities from one unified dashboard with cross-asset analytics." },
-  { icon:"◐", title:"Instant Settlements", desc:"Near-instant settlement with full audit trail. Withdraw anytime with zero lockup periods." },
+  { icon:"◎", title:"AI Copy Trading",     desc:"Smart algorithms mirror elite traders' moves with adjustable risk controls and position sizing.", href:"/copy-trading" },
+  { icon:"◈", title:"Portfolio Analytics", desc:"Deep metrics: Sharpe ratio, max drawdown, correlation heatmaps, and P&L attribution by strategy.", href:"/analytics" },
+  { icon:"◇", title:"Hire Pro Traders",    desc:"Curated marketplace of verified traders. Review audited track records before allocating capital.", href:"/market-place" },
+  { icon:"◉", title:"Risk Management",     desc:"Set stop-loss thresholds, daily loss limits, and exposure caps at account or per-trader level.", href:"/market-place" },
+  { icon:"▣", title:"Multi-Asset Support", desc:"Trade crypto, forex, stocks, and commodities from one unified dashboard with cross-asset analytics.", href:"/market-place" },
+  { icon:"◐", title:"Instant Settlements", desc:"Near-instant settlement with full audit trail. Withdraw anytime with zero lockup periods.", href:"/market-place" },
 ];
 
 const TESTIMONIALS = [
@@ -452,7 +452,7 @@ const CookieBanner = () => {
         <p style={{ fontSize:"12px", color:C.textMid, lineHeight:"1.6" }}>
           We use cookies to personalise content, analyse traffic, and improve your experience.
           Read our{" "}
-          <a href="#" style={{ color:C.accent, textDecoration:"underline" }}>Cookie Policy</a>
+          <a href="/cookie" style={{ color:C.accent, textDecoration:"underline" }}>Cookie Policy</a>
           {" "}for more details.
         </p>
       </div>
@@ -712,7 +712,7 @@ const TradeFlowLanding = () => {
               <span className="section-label">Leaderboard</span>
               <h2 style={{ fontFamily:"'Syne',sans-serif", fontSize:"clamp(28px,4vw,40px)", fontWeight:"800", letterSpacing:"-1.5px" }}>Top Performing Traders</h2>
             </div>
-            <a href="/marketplace" className="btn-secondary" style={{ fontSize:"13px", padding:"10px 20px" }}>View All 2,400+ →</a>
+            <a href="/market-place" className="btn-secondary" style={{ fontSize:"13px", padding:"10px 20px" }}>View All 2,400+ →</a>
           </div>
 
           <div className="traders-grid" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"20px" }}>
@@ -748,7 +748,7 @@ const TradeFlowLanding = () => {
 
                 <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:"8px" }}>
                   <div style={{ fontSize:"11px", color:C.textDim }}>{t.followers} followers</div>
-                  <button className="copy-btn">Copy Trader</button>
+                  <a href={`/copy-trading`} className="copy-btn">Copy Trader</a>
                 </div>
               </div>
             ))}
@@ -768,11 +768,11 @@ const TradeFlowLanding = () => {
             <div className="features-grid" style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:"20px" }}>
               {FEATURES.map((f,i)=>(
                 <Reveal key={i} delay={i*80}>
-                  <div className="feature-card" style={{ height:"100%" }}>
+                  <a href={f.href} className="feature-card" style={{ height:"100%", display:"block" }}>
                     <div style={{ width:"44px", height:"44px", borderRadius:"12px", background:C.accentDim, border:`1px solid ${C.accent}30`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"20px", color:C.accent, marginBottom:"18px" }}>{f.icon}</div>
                     <h3 style={{ fontFamily:"'Syne',sans-serif", fontSize:"17px", fontWeight:"700", color:C.text, marginBottom:"10px" }}>{f.title}</h3>
                     <p style={{ fontSize:"13px", color:C.textMid, lineHeight:"1.72" }}>{f.desc}</p>
-                  </div>
+                  </a>
                 </Reveal>
               ))}
             </div>
@@ -865,7 +865,7 @@ const TradeFlowLanding = () => {
                     ))}
                   </div>
                   <div style={{ fontSize:"11px", color:C.textDim, marginBottom:"16px" }}>Assets: {t.assets}</div>
-                  <button className="btn-primary" style={{ width:"100%", justifyContent:"center", fontSize:"13px", padding:"10px" }}>Hire Now →</button>
+                  <a href={`/hire-trader`} className="btn-primary" style={{ width:"100%", justifyContent:"center", fontSize:"13px", padding:"10px" }}>Hire Now →</a>
                 </div>
               </Reveal>
             ))}
@@ -980,7 +980,7 @@ const TradeFlowLanding = () => {
             ))}
             </div>
             <div style={{ padding:"16px 28px", borderTop:`1px solid ${C.border}`, textAlign:"center" }}>
-              <a href="#" style={{ fontSize:"13px", color:C.accent, fontWeight:"600" }}>View Full Calendar →</a>
+              <a href="/calendar" style={{ fontSize:"13px", color:C.accent, fontWeight:"600" }}>View Full Calendar →</a>
             </div>
           </div>
         </Reveal>
@@ -1045,8 +1045,12 @@ const TradeFlowLanding = () => {
                 The professional copy trading platform for modern investors.
               </p>
               <div style={{ display:"flex", gap:"12px", marginTop:"20px" }}>
-                {["𝕏","in","Discord"].map(s=>(
-                  <a key={s} href="#" style={{ width:"34px", height:"34px", borderRadius:"8px", border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"12px", color:C.textDim, transition:"border-color .2s, color .2s" }}
+                {[
+                  { s:"𝕏", href:"https://x.com/tradeflow" },
+                  { s:"in", href:"https://linkedin.com/company/tradeflow" },
+                  { s:"Discord", href:"https://discord.gg/tradeflow" },
+                ].map(({s, href})=>(
+                  <a key={s} href={href} target="_blank" rel="noopener noreferrer" style={{ width:"34px", height:"34px", borderRadius:"8px", border:`1px solid ${C.border}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:"12px", color:C.textDim, transition:"border-color .2s, color .2s" }}
                     onMouseEnter={e=>{e.currentTarget.style.borderColor=C.borderHover;e.currentTarget.style.color=C.textMid;}}
                     onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textDim;}}
                   >{s}</a>
@@ -1054,14 +1058,25 @@ const TradeFlowLanding = () => {
               </div>
             </div>
             {[
-              { title:"Product", links:["Platform","Copy Trading","Marketplace","Pricing","API"] },
-              { title:"Company", links:["About","Blog","Careers","Press","Contact"] },
-              { title:"Legal",   links:["Privacy","Terms","Cookie Policy","Disclosures"] },
+              { title:"Product", links:[
+                  { label:"Platform",     href:"/platform" },
+                  { label:"Copy Trading", href:"/copy-trading" },
+                  { label:"Marketplace",  href:"/market-place" },
+              ]},
+              { title:"Company", links:[
+                  { label:"About",   href:"/about" },
+              ]},
+              { title:"Legal", links:[
+                  { label:"Privacy",       href:"/privacy" },
+                  { label:"Terms",         href:"/terms" },
+                  { label:"Cookie Policy", href:"/cookie" },
+                  { label:"Disclosures",   href:"/disclosures" },
+              ]},
             ].map(col=>(
               <div key={col.title}>
                 <div style={{ fontSize:"11px", fontWeight:"600", color:C.textMid, letterSpacing:".1em", textTransform:"uppercase", marginBottom:"16px" }}>{col.title}</div>
                 {col.links.map(l=>(
-                  <a key={l} href="#" className="footer-link" style={{ display:"block", marginBottom:"10px" }}>{l}</a>
+                  <a key={l.label} href={l.href} className="footer-link" style={{ display:"block", marginBottom:"10px" }}>{l.label}</a>
                 ))}
               </div>
             ))}
@@ -1072,8 +1087,12 @@ const TradeFlowLanding = () => {
           <div className="footer-bottom" style={{ display:"flex", justifyContent:"space-between", alignItems:"center", flexWrap:"wrap", gap:"10px" }}>
             <p style={{ fontSize:"12px", color:C.textDim }}>© 2025 TradeFlow Inc. All rights reserved. Trading involves risk.</p>
             <div style={{ display:"flex", gap:"20px" }}>
-              {["Privacy","Terms","Cookies"].map(l=>(
-                <a key={l} href="#" className="footer-link" style={{fontSize:"12px"}}>{l}</a>
+              {[
+                { label:"Privacy", href:"/privacy" },
+                { label:"Terms",   href:"/terms" },
+                { label:"Cookies", href:"/cookie" },
+              ].map(l=>(
+                <a key={l.label} href={l.href} className="footer-link" style={{fontSize:"12px"}}>{l.label}</a>
               ))}
             </div>
           </div>

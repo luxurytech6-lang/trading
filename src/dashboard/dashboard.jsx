@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import supabase from "../supabase";
 
 // ─── Design Tokens & Global CSS ──────────────────────────────────────────────
 const GLOBAL_CSS = `
@@ -815,42 +816,45 @@ const MP_ITEMS = [
 ];
 
 const MAIN_LINKS = [
-  { href:'#', icon:'ti-layout-dashboard', label:'Dashboard',    active:true },
-  { href:'#', icon:'ti-copy',             label:'Copy Trading'              },
-  { href:'#', icon:'ti-users',            label:'Hire a Trader'             },
-  { href:'#', icon:'ti-chart-line',       label:'Insights'                  },
-  { href:'#', icon:'ti-robot',            label:'Marketplace',  badge:'NEW' },
-  { href:'#', icon:'ti-chart-candle',     label:'Terminal'                  },
+  { href:'/dashboard', icon:'ti-layout-dashboard', label:'Dashboard',    active:true },
+  { href:'/copy-trading', icon:'ti-copy',             label:'Copy Trading'              },
+  { href:'/hire-trader', icon:'ti-users',            label:'Hire a Trader'             },
+  { href:'/insights', icon:'ti-chart-line',       label:'Insights'                  },
+  { href:'/market-place', icon:'ti-robot',            label:'Marketplace',  badge:'NEW' },
+  { href:'/terminal', icon:'ti-chart-candle',     label:'Terminal'                  },
 ];
 const ACCOUNT_LINKS = [
-  { href:'#', icon:'ti-credit-card',      label:'Payments'  },
-  { href:'#', icon:'ti-user-circle',      label:'Profile'   },
-  { href:'#', icon:'ti-settings',         label:'Settings'  },
-  { href:'#', icon:'ti-headset',          label:'Support'   },
+  { href:'/payments', icon:'ti-credit-card',      label:'Payments'  },
+  { href:'/profile', icon:'ti-user-circle',      label:'Profile'   },
+  { href:'/settings', icon:'ti-settings',         label:'Settings'  },
+  { href:'/support', icon:'ti-headset',          label:'Support'   },
 ];
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function Sidebar({ open }) {
+function Sidebar({ open, user, onLogout }) {
+  const initials    = user ? `${user.first_name?.[0]??''}${user.last_name?.[0]??''}`.toUpperCase() || user.email?.[0]?.toUpperCase() || '?' : '?';
+  const displayName = user ? [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email : '—';
+  const planLabel   = user?.plan ? `${user.plan.charAt(0).toUpperCase()}${user.plan.slice(1)} · ${user.is_verified ? 'Verified' : 'Unverified'}` : '—';
+  const portfolioVal = user?._portfolioVal ?? '$0.00';
+  const dailyChange  = user?._dailyChange  ?? '';
+
   return (
     <aside className={`sidebar${open ? ' open' : ''}`}>
-      {/* Brand */}
       <div className="brand">
         <div className="brand-icon"><i className="ti ti-trending-up" /></div>
         <span className="brand-name">Trade<em>Flow</em></span>
       </div>
 
-      {/* Portfolio pill */}
       <div className="sb-portfolio">
         <div className="sb-portfolio-label">
           <span className="live-dot" style={{ width:6, height:6 }} />
           Live Portfolio
         </div>
-        <div className="sb-portfolio-value">$48,204.33</div>
-        <div className="sb-portfolio-sub">▲ +$1,240 today &nbsp;·&nbsp; +2.64%</div>
+        <div className="sb-portfolio-value">{portfolioVal}</div>
+        {dailyChange && <div className="sb-portfolio-sub">{dailyChange}</div>}
       </div>
 
-      {/* Nav */}
       <div className="sb-scroll">
         <div className="sb-section">Main</div>
         {MAIN_LINKS.map(l => (
@@ -869,26 +873,29 @@ function Sidebar({ open }) {
         ))}
       </div>
 
-      {/* User */}
       <div className="sb-user">
-        <div className="sb-avatar">AK</div>
+        <div className="sb-avatar">{initials}</div>
         <div>
-          <div className="sb-user-name">Alex Kim</div>
-          <div className="sb-user-role">Pro · Verified</div>
+          <div className="sb-user-name">{displayName}</div>
+          <div className="sb-user-role">{planLabel}</div>
         </div>
-        <i className="ti ti-logout sb-logout" title="Sign out" />
+        <i className="ti ti-logout sb-logout" title="Sign out" onClick={onLogout} />
       </div>
     </aside>
   );
 }
 
-function Topbar({ onMenu }) {
+function Topbar({ onMenu, user }) {
+  const firstName = user?.first_name || user?.email?.split('@')[0] || 'Trader';
+  const initials  = user ? `${user.first_name?.[0]??''}${user.last_name?.[0]??''}`.toUpperCase() || user.email?.[0]?.toUpperCase() || '?' : '?';
+  const hour      = new Date().getHours();
+  const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return (
     <div className="topbar">
       <div className="topbar-hamburger" onClick={onMenu}>
         <span /><span /><span />
       </div>
-      <div className="topbar-title">Good morning, <span>Alex</span></div>
+      <div className="topbar-title">{greeting}, <span>{firstName}</span></div>
       <div className="topbar-search">
         <i className="ti ti-search" />
         <input placeholder="Search assets, orders…" />
@@ -898,7 +905,7 @@ function Topbar({ onMenu }) {
         <span className="notif-dot" />
       </div>
       <div className="topbar-icon"><i className="ti ti-settings" /></div>
-      <div className="topbar-avatar">AK</div>
+      <div className="topbar-avatar">{initials}</div>
     </div>
   );
 }
@@ -920,20 +927,34 @@ function Ticker() {
   );
 }
 
-function MetricsGrid() {
+function MetricsGrid({ snapshot }) {
+  const fmt    = n => `$${Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits:0, maximumFractionDigits:0 })}`;
+  const fmtPct = n => `${Number(n ?? 0) >= 0 ? '+' : ''}${Number(n ?? 0).toFixed(1)}%`;
+
+  const totalValue  = snapshot ? fmt(snapshot.total_value)            : '$0';
+  const dailyAbs    = snapshot ? fmt(Math.abs(snapshot.daily_pnl))    : '$0';
+  const dailyDir    = snapshot && Number(snapshot.daily_pnl) >= 0 ? '▲' : '▼';
+  const dailyCls    = snapshot && Number(snapshot.daily_pnl) >= 0 ? 'badge-up' : 'badge-dn';
+  const totalPnl    = snapshot ? `${Number(snapshot.total_pnl) >= 0 ? '+' : ''}${fmt(snapshot.total_pnl)}` : '$0';
+  const totalPnlPct = snapshot ? fmtPct(snapshot.total_pnl_pct)       : '+0.0%';
+  const openPos     = snapshot ? String(snapshot.open_positions)       : '0';
+  const winRate     = snapshot ? `${Number(snapshot.win_rate_pct).toFixed(0)}%` : '0%';
+  const cryptoPct   = snapshot ? Math.round(snapshot.alloc_crypto_pct) : 0;
+  const forexPct    = snapshot ? Math.round(snapshot.alloc_forex_pct)  : 0;
+
   const cards = [
-    { icon:'ti-wallet',      iconBg:'var(--accent-dim)',  iconColor:'var(--accent)',
-      label:'Portfolio Value', value:'$48,204', cls:'accent',
-      badge:'▲ +$1,240 today', badgeCls:'badge-up' },
-    { icon:'ti-trending-up', iconBg:'var(--green-dim)',   iconColor:'var(--green)',
-      label:'Total P&L',      value:'+$8,204', cls:'green',
-      badge:'▲ +20.4% all-time', badgeCls:'badge-up' },
-    { icon:'ti-chart-bar',   iconBg:'var(--blue-dim)',    iconColor:'var(--blue)',
-      label:'Open Positions', value:'12',      cls:'',
-      badge:'4 Crypto · 8 Forex', badgeCls:'' },
-    { icon:'ti-target',      iconBg:'rgba(167,139,250,.12)', iconColor:'var(--purple)',
-      label:'Win Rate',       value:'68%',     cls:'',
-      badge:'▲ +3% this month', badgeCls:'badge-up' },
+    { icon:'ti-wallet',      iconBg:'var(--accent-dim)',        iconColor:'var(--accent)',
+      label:'Portfolio Value', value:totalValue,  cls:'accent',
+      badge:`${dailyDir} ${dailyAbs} today`, badgeCls:dailyCls },
+    { icon:'ti-trending-up', iconBg:'var(--green-dim)',         iconColor:'var(--green)',
+      label:'Total P&L',      value:totalPnl,    cls:'green',
+      badge:`▲ ${totalPnlPct} all-time`,     badgeCls:'badge-up' },
+    { icon:'ti-chart-bar',   iconBg:'var(--blue-dim)',          iconColor:'var(--blue)',
+      label:'Open Positions', value:openPos,     cls:'',
+      badge:`${cryptoPct}% Crypto · ${forexPct}% Forex`, badgeCls:'' },
+    { icon:'ti-target',      iconBg:'rgba(167,139,250,.12)',    iconColor:'var(--purple)',
+      label:'Win Rate',       value:winRate,     cls:'',
+      badge:'Based on closed trades', badgeCls:'' },
   ];
   return (
     <div className="metrics-grid">
@@ -953,8 +974,14 @@ function MetricsGrid() {
   );
 }
 
-function PerformanceCard({ activeBar, onBar }) {
+function PerformanceCard({ activeBar, onBar, perfBars, snapshot }) {
   const [period, setPeriod] = useState('12M');
+  const bars   = perfBars?.length ? perfBars : BAR_HEIGHTS.map((h,i) => ({ height_pct:h, is_negative:i===4, period_label:BAR_MONTHS[i] }));
+  const labels = bars.map(b => b.period_label);
+  const pnlPct = snapshot
+    ? `${Number(snapshot.total_pnl_pct) >= 0 ? '+' : ''}${Number(snapshot.total_pnl_pct).toFixed(1)}%`
+    : '+0.0%';
+
   return (
     <div className="card perf-card">
       <div className="card-header">
@@ -965,27 +992,49 @@ function PerformanceCard({ activeBar, onBar }) {
           ))}
         </div>
       </div>
-      <div className="perf-headline">+20.4%</div>
+      <div className="perf-headline">{pnlPct}</div>
       <div className="perf-sub">vs S&amp;P 500 <span>+9.1%</span> — last 12 months</div>
       <div className="bars">
-        {BAR_HEIGHTS.map((h, i) => (
+        {bars.map((b, i) => (
           <div
             key={i}
-            className={`bar${i===4?' neg':''}${i===activeBar?' active':''}`}
-            style={{ height:`${h}%` }}
+            className={`bar${b.is_negative?' neg':''}${i===activeBar?' active':''}`}
+            style={{ height:`${Math.max(Number(b.height_pct), 4)}%` }}
             onClick={()=>onBar(i)}
-            title={BAR_MONTHS[i]}
+            title={b.period_label}
           />
         ))}
       </div>
       <div className="bar-labels">
-        {BAR_MONTHS.map(m => <span key={m}>{m}</span>)}
+        {labels.map(m => <span key={m}>{m}</span>)}
       </div>
     </div>
   );
 }
 
-function PositionsCard() {
+function PositionsCard({ positions }) {
+  const display = positions?.length ? positions.map(p => {
+    const pl     = Number(p.profit_loss ?? 0);
+    const plDir  = pl >= 0 ? 'up' : 'dn';
+    const plSign = pl >= 0 ? '+' : '-';
+    const pct    = Number(p.open_price) > 0
+      ? (((Number(p.current_price) - Number(p.open_price)) / Number(p.open_price)) * 100).toFixed(2)
+      : '0.00';
+    return {
+      pair:    p.symbol,
+      sym:     p.symbol.slice(0,2),
+      type:    p.trade_type,
+      typeC:   p.trade_type === 'BUY' ? 'buy' : 'sell',
+      entry:   Number(p.open_price).toFixed(4),
+      current: Number(p.current_price).toFixed(4),
+      pl:      `${plSign}$${Math.abs(pl).toFixed(2)}`,
+      pct:     `${pl >= 0 ? '+' : ''}${pct}%`,
+      plDir,
+      status:  p.status,
+      stC:     p.status === 'open' ? 'open' : 'closed',
+    };
+  }) : [];
+
   return (
     <div className="card positions-card">
       <div className="card-header">
@@ -1001,24 +1050,25 @@ function PositionsCard() {
             </tr>
           </thead>
           <tbody>
-            {POSITIONS.map(p => (
-              <tr key={p.pair}>
-                <td>
-                  <div className="asset-cell">
-                    <div className="asset-icon">{p.sym.slice(0,2)}</div>
-                    <div>
-                      <div className="asset-name">{p.pair}</div>
+            {display.length === 0
+              ? <tr><td colSpan={7} style={{ textAlign:'center', color:'var(--muted)', padding:'24px 0', fontFamily:'var(--mono)', fontSize:12 }}>No open positions</td></tr>
+              : display.map(p => (
+                <tr key={p.pair}>
+                  <td>
+                    <div className="asset-cell">
+                      <div className="asset-icon">{p.sym.slice(0,2)}</div>
+                      <div><div className="asset-name">{p.pair}</div></div>
                     </div>
-                  </div>
-                </td>
-                <td><span className={`badge badge-${p.typeC}`}>{p.type}</span></td>
-                <td className="mono-val">{p.entry}</td>
-                <td className="mono-val">{p.current}</td>
-                <td className={`mono-val ${p.plDir}`} style={{ fontWeight:700 }}>{p.pl}</td>
-                <td className={p.plDir} style={{ fontFamily:'var(--mono)', fontWeight:600 }}>{p.pct}</td>
-                <td><span className={`badge badge-${p.stC}`}>{p.status}</span></td>
-              </tr>
-            ))}
+                  </td>
+                  <td><span className={`badge badge-${p.typeC}`}>{p.type}</span></td>
+                  <td className="mono-val">{p.entry}</td>
+                  <td className="mono-val">{p.current}</td>
+                  <td className={`mono-val ${p.plDir}`} style={{ fontWeight:700 }}>{p.pl}</td>
+                  <td className={p.plDir} style={{ fontFamily:'var(--mono)', fontWeight:600 }}>{p.pct}</td>
+                  <td><span className={`badge badge-${p.stC}`}>{p.status}</span></td>
+                </tr>
+              ))
+            }
           </tbody>
         </table>
       </div>
@@ -1026,7 +1076,16 @@ function PositionsCard() {
   );
 }
 
-function MarketplaceCard() {
+function MarketplaceCard({ mpItems }) {
+  const items = mpItems?.length ? mpItems.map(item => ({
+    icon:  item.icon_class   || 'ti-robot',
+    name:  item.name,
+    tag:   item.tag          || '',
+    roi:   item.roi_12m_pct != null ? `+${Number(item.roi_12m_pct).toFixed(1)}%` : '—',
+    price: item.price_monthly != null ? `$${Number(item.price_monthly).toFixed(0)}/mo` : 'Free',
+    color: item.color_hex    || 'var(--accent)',
+  })) : MP_ITEMS;
+
   return (
     <div className="card mp-card">
       <div className="card-header">
@@ -1037,7 +1096,7 @@ function MarketplaceCard() {
         <span className="card-link">Browse all <i className="ti ti-arrow-right" /></span>
       </div>
       <div className="mp-grid">
-        {MP_ITEMS.map(item => (
+        {items.map(item => (
           <div key={item.name} className="mp-row">
             <div className="mp-icon" style={{ background:item.color }}>
               <i className={`ti ${item.icon}`} />
@@ -1047,14 +1106,14 @@ function MarketplaceCard() {
               <div className="mp-tag">{item.tag}</div>
             </div>
             <div>
-              <div className={`mp-roi up`}>{item.roi}</div>
+              <div className="mp-roi up">{item.roi}</div>
               <div className="mp-price">{item.price}</div>
             </div>
           </div>
         ))}
       </div>
       <div style={{ marginTop:14 }}>
-        <a href="#" className="btn btn-accent btn-sm" style={{ width:'100%', justifyContent:'center' }}>
+        <a href="/market-place" className="btn btn-accent btn-sm" style={{ width:'100%', justifyContent:'center' }}>
           <i className="ti ti-rocket" /> Explore Marketplace
         </a>
       </div>
@@ -1062,13 +1121,44 @@ function MarketplaceCard() {
   );
 }
 
-function RightColumn() {
+function RightColumn({ snapshot, copyRels }) {
+  const fmt = n => `$${Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits:0, maximumFractionDigits:0 })}`;
+
+  const allocations = snapshot ? [
+    { label:'Crypto', pct: Math.round(snapshot.alloc_crypto_pct ?? 0), cls:'pf-accent' },
+    { label:'Forex',  pct: Math.round(snapshot.alloc_forex_pct  ?? 0), cls:'pf-green'  },
+    { label:'Stocks', pct: Math.round(snapshot.alloc_stocks_pct ?? 0), cls:'pf-blue'   },
+    { label:'Cash',   pct: Math.round(snapshot.alloc_cash_pct   ?? 0), cls:'pf-muted'  },
+  ] : [
+    { label:'Crypto', pct:0, cls:'pf-accent' },
+    { label:'Forex',  pct:0, cls:'pf-green'  },
+    { label:'Stocks', pct:0, cls:'pf-blue'   },
+    { label:'Cash',   pct:0, cls:'pf-muted'  },
+  ];
+
+  const invested = fmt(snapshot?.invested ?? 0);
+  const cash     = fmt(snapshot?.cash     ?? 0);
+
+  const traders = copyRels?.length ? copyRels.map(r => ({
+    initials: r.trader_profiles?.initials || r.trader_profiles?.display_name?.slice(0,2).toUpperCase() || '??',
+    name:     r.trader_profiles?.display_name || r.trader_profiles?.handle || '—',
+    pct:      r.trader_profiles?.trader_performance?.[0]?.roi_pct != null
+                ? `+${Number(r.trader_profiles.trader_performance[0].roi_pct).toFixed(1)}%`
+                : '0.0%',
+    prog:     Math.min(Math.max(Number(r.trader_profiles?.trader_performance?.[0]?.roi_pct ?? 0), 0), 100),
+    bg:       r.trader_profiles?.color_hex || 'var(--accent)',
+  })) : [];
+
+  const totalAllocated = copyRels?.length
+    ? fmt(copyRels.reduce((s, r) => s + Number(r.allocated_amount ?? 0), 0))
+    : '$0';
+
   return (
     <div className="right-col">
       {/* Asset Allocation */}
       <div className="card">
         <div className="card-title">Asset Allocation</div>
-        {ALLOCATIONS.map(a => (
+        {allocations.map(a => (
           <div key={a.label} className="alloc-row">
             <div className="alloc-top">
               <span style={{ fontSize:13 }}>{a.label}</span>
@@ -1082,11 +1172,11 @@ function RightColumn() {
         <div className="alloc-totals">
           <div className="alloc-tot-card">
             <div className="alloc-tot-lbl">Invested</div>
-            <div className="alloc-tot-val accent">$43,984</div>
+            <div className="alloc-tot-val accent">{invested}</div>
           </div>
           <div className="alloc-tot-card">
             <div className="alloc-tot-lbl">Cash</div>
-            <div className="alloc-tot-val">$4,220</div>
+            <div className="alloc-tot-val">{cash}</div>
           </div>
         </div>
       </div>
@@ -1095,24 +1185,27 @@ function RightColumn() {
       <div className="card">
         <div className="copy-head">
           <div>
-            <div className="copy-count">3 Active Copies</div>
-            <div className="copy-alloc">$15,000 allocated</div>
+            <div className="copy-count">{traders.length} Active {traders.length === 1 ? 'Copy' : 'Copies'}</div>
+            <div className="copy-alloc">{totalAllocated} allocated</div>
           </div>
-          <a href="#" className="btn btn-ghost btn-sm">Manage</a>
+          <a href="/copy-trading" className="btn btn-ghost btn-sm">Manage</a>
         </div>
         <div className="card-title">Copy Trading</div>
-        {COPY_TRADERS.map(t => (
-          <div key={t.name} className="copy-row">
-            <div className="copy-av" style={{ background:t.bg }}>{t.initials}</div>
-            <div style={{ flex:1 }}>
-              <div className="copy-name">{t.name}</div>
-              <div className="progress-bar" style={{ marginTop:5 }}>
-                <div className="progress-fill" style={{ width:`${t.prog}%`, background:t.bg }} />
+        {traders.length === 0
+          ? <div style={{ fontSize:12, color:'var(--muted)', fontFamily:'var(--mono)', textAlign:'center', padding:'12px 0' }}>No active copy trades</div>
+          : traders.map(t => (
+            <div key={t.name} className="copy-row">
+              <div className="copy-av" style={{ background:t.bg }}>{t.initials}</div>
+              <div style={{ flex:1 }}>
+                <div className="copy-name">{t.name}</div>
+                <div className="progress-bar" style={{ marginTop:5 }}>
+                  <div className="progress-fill" style={{ width:`${t.prog}%`, background:t.bg }} />
+                </div>
               </div>
+              <span className="copy-pct up">{t.pct}</span>
             </div>
-            <span className="copy-pct up">{t.pct}</span>
-          </div>
-        ))}
+          ))
+        }
       </div>
 
       {/* Quick Actions */}
@@ -1120,10 +1213,10 @@ function RightColumn() {
         <div className="card-title">Quick Actions</div>
         <div className="quick-list">
           {[
-            { href:'#', icon:'ti-copy',      label:'Start Copy Trading' },
-            { href:'#', icon:'ti-users',     label:'Hire a Trader'      },
-            { href:'#', icon:'ti-plus',      label:'Deposit Funds'      },
-            { href:'#', icon:'ti-chart-bar', label:'View Insights'      },
+            { href:'/copy-trading', icon:'ti-copy',      label:'Start Copy Trading' },
+            { href:'/hire-trader', icon:'ti-users',     label:'Hire a Trader'      },
+            { href:'/payment', icon:'ti-plus',      label:'Deposit Funds'      },
+            { href:'/insights', icon:'ti-chart-bar', label:'View Insights'      },
           ].map(a => (
             <a key={a.label} href={a.href} className="quick-btn">
               <i className={`ti ${a.icon}`} />
@@ -1139,10 +1232,79 @@ function RightColumn() {
 
 // ─── Root ─────────────────────────────────────────────────────────────────────
 export default function Dashboard() {
-  const [activeBar, setActiveBar] = useState(11);
+  const [activeBar,   setActiveBar]   = useState(11);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [user,        setUser]        = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [snapshot,    setSnapshot]    = useState(null);
+  const [perfBars,    setPerfBars]    = useState([]);
+  const [positions,   setPositions]   = useState([]);
+  const [copyRels,    setCopyRels]    = useState([]);
+  const [mpItems,     setMpItems]     = useState([]);
 
-  // Close mobile sidebar on outside click
+  useEffect(() => {
+    let mounted = true;
+
+    const bootstrap = async (session) => {
+      if (!session) { window.location.href = '/login'; return; }
+      const uid = session.user.id;
+
+      const [
+        { data: profile },
+        { data: snap },
+        { data: bars },
+        { data: pos },
+        { data: copies },
+        { data: mp },
+      ] = await Promise.all([
+        supabase.from('users').select('first_name,last_name,email,plan,is_verified').eq('id', uid).single(),
+        supabase.from('portfolio_snapshots').select('*').eq('user_id', uid).order('snapped_at', { ascending:false }).limit(1).single(),
+        supabase.from('performance_bars').select('period_label,height_pct,is_negative').eq('user_id', uid).order('period_start', { ascending:true }).limit(12),
+        supabase.from('open_positions').select('symbol,trade_type,open_price,current_price,profit_loss,status').eq('user_id', uid).eq('status','open').order('opened_at', { ascending:false }).limit(10),
+        supabase.from('copy_relationships').select(`allocated_amount,trader_profiles(display_name,handle,initials,color_hex,trader_performance(roi_pct,period))`).eq('copier_id', uid).eq('status','active'),
+        supabase.from('marketplace_items').select('name,tag,icon_class,color_hex,price_monthly,roi_12m_pct').eq('is_active', true).order('subscriber_count', { ascending:false }).limit(3),
+      ]);
+
+      if (!mounted) return;
+
+      const enrichedUser = {
+        ...(profile ?? { first_name: session.user.user_metadata?.first_name ?? '', last_name: session.user.user_metadata?.last_name ?? '', email: session.user.email }),
+        _portfolioVal: snap ? `$${Number(snap.total_value).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })}` : '$0.00',
+        _dailyChange:  snap ? `${Number(snap.daily_pnl) >= 0 ? '▲' : '▼'} $${Math.abs(Number(snap.daily_pnl)).toFixed(2)} today` : '',
+      };
+
+      setUser(enrichedUser);
+      if (snap)           setSnapshot(snap);
+      if (bars?.length)   setPerfBars(bars);
+      if (pos?.length)    setPositions(pos);
+      if (copies?.length) {
+        setCopyRels(copies.map(r => ({
+          ...r,
+          trader_profiles: r.trader_profiles ? {
+            ...r.trader_profiles,
+            trader_performance: (r.trader_profiles.trader_performance ?? [])
+              .sort((a,b) => (b.period === '1Y' ? 1 : -1)).slice(0,1),
+          } : null,
+        })));
+      }
+      if (mp?.length) setMpItems(mp);
+      setAuthChecked(true);
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => bootstrap(session));
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (!session) window.location.href = '/login';
+    });
+
+    return () => { mounted = false; subscription.unsubscribe(); };
+  }, []);
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    window.location.href = '/login';
+  };
+
   useEffect(() => {
     if (!sidebarOpen) return;
     const close = () => setSidebarOpen(false);
@@ -1150,75 +1312,65 @@ export default function Dashboard() {
     return () => document.removeEventListener('keydown', close);
   }, [sidebarOpen]);
 
+  if (!authChecked) {
+    return (
+      <>
+        <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+        <div style={{ height:'100vh', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:16, background:'var(--bg)' }}>
+          <div style={{ width:40, height:40, borderRadius:'50%', border:'3px solid var(--border2)', borderTopColor:'var(--accent)', animation:'spin .7s linear infinite' }} />
+          <span style={{ fontFamily:'var(--mono)', fontSize:12, color:'var(--muted)', letterSpacing:'.06em' }}>Loading dashboard…</span>
+          <style>{`@keyframes spin { to { transform:rotate(360deg); } }`}</style>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
 
-      {/* Mobile sidebar backdrop */}
-      <div
-        className={`sb-backdrop${sidebarOpen ? ' open' : ''}`}
-        onClick={() => setSidebarOpen(false)}
-      />
+      <div className={`sb-backdrop${sidebarOpen ? ' open' : ''}`} onClick={() => setSidebarOpen(false)} />
 
       <div className="shell">
-        {/* ── Persistent sidebar (desktop) / drawer (mobile) ── */}
-        <Sidebar open={sidebarOpen} />
+        <Sidebar open={sidebarOpen} user={user} onLogout={handleLogout} />
 
-        {/* ── Right panel ── */}
         <div className="right-panel">
-          <Topbar onMenu={() => setSidebarOpen(v => !v)} />
+          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} />
           <Ticker />
 
           <main className="main">
-            {/* Page header */}
             <div className="page-header">
               <div>
-                <div className="page-greeting">
-                  <em>Dashboard</em>
-                </div>
+                <div className="page-greeting"><em>Dashboard</em></div>
                 <div className="page-sub">
                   <span className="live-dot" />
                   Markets up 2.3% today · Last updated just now
                 </div>
               </div>
               <div className="header-actions">
-                <a href="#" className="btn btn-ghost btn-sm">
-                  <i className="ti ti-download" /> Export
-                </a>
-                <a href="#" className="btn btn-accent btn-sm">
-                  <i className="ti ti-plus" /> New Trade
-                </a>
+                <a href="#" className="btn btn-ghost btn-sm"><i className="ti ti-download" /> Export</a>
+                <a href="/terminal" className="btn btn-accent btn-sm"><i className="ti ti-plus" /> New Trade</a>
               </div>
             </div>
 
-            {/* KPI row */}
-            <MetricsGrid />
+            <MetricsGrid snapshot={snapshot} />
 
-            {/* Main dashboard grid */}
             <div className="dashboard-grid">
-              {/* Col 1: Performance */}
-              <PerformanceCard activeBar={activeBar} onBar={setActiveBar} />
-
-              {/* Col 2: Marketplace */}
-              <MarketplaceCard />
-
-              {/* Col 3: Right column — spans rows */}
-              <RightColumn />
-
-              {/* Row 2 col 1-2: Positions */}
-              <PositionsCard />
+              <PerformanceCard activeBar={activeBar} onBar={setActiveBar} perfBars={perfBars} snapshot={snapshot} />
+              <MarketplaceCard mpItems={mpItems} />
+              <RightColumn snapshot={snapshot} copyRels={copyRels} />
+              <PositionsCard positions={positions} />
             </div>
           </main>
         </div>
       </div>
 
-      {/* Mobile bottom nav */}
       <nav className="bottom-nav">
-        <a href="#" className="bn-item active"><i className="ti ti-layout-dashboard" />Home</a>
-        <a href="#" className="bn-item"><i className="ti ti-chart-candle" />Trade</a>
-        <a href="#" className="bn-item"><i className="ti ti-robot" />Bots</a>
-        <a href="#" className="bn-item"><i className="ti ti-copy" />Copy</a>
-        <a href="#" className="bn-item"><i className="ti ti-user-circle" />Profile</a>
+        <a href="/dashboard" className="bn-item active"><i className="ti ti-layout-dashboard" />Home</a>
+        <a href="/terminal" className="bn-item"><i className="ti ti-chart-candle" />Trade</a>
+        <a href="/market-place" className="bn-item"><i className="ti ti-robot" />Bots</a>
+        <a href="/copy-trading" className="bn-item"><i className="ti ti-copy" />Copy</a>
+        <a href="/profile" className="bn-item"><i className="ti ti-user-circle" />Profile</a>
       </nav>
     </>
   );
