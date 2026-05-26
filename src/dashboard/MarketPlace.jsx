@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import supabase from "../supabase";
 
 /* ─── Design tokens (matches CopyTrading) ───────────────────────────────────── */
 const T = {
@@ -486,180 +487,85 @@ const GLOBAL_CSS = `
   }
 `;
 
-/* ─── Data ───────────────────────────────────────────────────────────────────── */
-
-const METRICS = [
-  { label: 'Active Subs',   value: '3',        sub: '2 bots · 1 signal',  icon: 'ti-stack-2',      iconBg: 'rgba(200,245,96,.12)',  iconColor: '#c8f560' },
-  { label: 'Monthly Spend', value: '$83',       sub: 'Renews Jun 1',       icon: 'ti-credit-card',  iconBg: 'rgba(96,165,250,.12)',  iconColor: '#60a5fa' },
-  { label: 'Bot P&L (30D)', value: '+$1,247',   sub: '+14.9% on capital',  icon: 'ti-trending-up',  iconBg: 'rgba(52,211,153,.12)',  iconColor: '#34d399' },
-  { label: 'Signals Sent',  value: '148',       sub: 'This month',         icon: 'ti-broadcast',    iconBg: 'rgba(167,139,250,.12)', iconColor: '#a78bfa' },
-];
-
-const BOTS = [
-  {
-    id: 'alphagrid',
-    name: 'AlphaGrid',
-    tag: 'Grid Bot',
-    desc: 'Automated grid trading for crypto markets. Profits from sideways volatility without predicting direction.',
-    roi: '+41.2%', trades: '1,842', winRate: '71%',
-    price: 29, color: T.g, icon: 'ti-robot',
-    badge: 'Top Rated', badgeCls: 'gold',
-    markets: ['BTC/USDT', 'ETH/USDT', 'SOL/USDT'],
-  },
-  {
-    id: 'momentumx',
-    name: 'MomentumX',
-    tag: 'Trend Bot',
-    desc: 'Rides strong momentum breakouts using multi-timeframe confirmation. Works best on trending markets.',
-    roi: '+28.7%', trades: '934', winRate: '64%',
-    price: 19, color: T.bl, icon: 'ti-rocket',
-    badge: 'Popular', badgeCls: 'blue',
-    markets: ['NVDA', 'TSLA', 'BTC/USDT'],
-  },
-  {
-    id: 'scalprpro',
-    name: 'ScalprPro',
-    tag: 'Scalping Bot',
-    desc: 'High-frequency scalper for forex pairs. Targets 5–15 pip moves with tight stop-losses.',
-    roi: '+19.3%', trades: '6,210', winRate: '78%',
-    price: 39, color: '#f59e0b', icon: 'ti-bolt',
-    badge: null, badgeCls: null,
-    markets: ['EUR/USD', 'GBP/USD', 'USD/JPY'],
-  },
-  {
-    id: 'dcamaster',
-    name: 'DCA Master',
-    tag: 'DCA Bot',
-    desc: 'Dollar-cost averaging bot. Automatically buys on dips and rebalances your crypto portfolio.',
-    roi: '+33.5%', trades: '412', winRate: '82%',
-    price: 15, color: T.gn, icon: 'ti-refresh',
-    badge: 'Best Value', badgeCls: 'green',
-    markets: ['BTC', 'ETH', 'SOL', 'BNB'],
-  },
-];
-
-const SIGNALS = [
-  {
-    id: 'cryptoedge',
-    name: 'CryptoEdge',
-    tag: 'Crypto Signals',
-    desc: 'Daily curated crypto signals with entry, stop-loss, and take-profit levels. Avg. 3–5 signals/day.',
-    roi: '+55.1%', subs: '4,200+', accuracy: '73%',
-    price: 39, color: T.pr, icon: 'ti-broadcast',
-    badge: 'Best Seller', badgeCls: 'purple',
-    markets: ['BTC', 'ETH', 'ALT'],
-    delivery: 'Telegram + App',
-  },
-  {
-    id: 'forexelite',
-    name: 'ForexElite',
-    tag: 'Forex Signals',
-    desc: 'Institutional-grade forex signals from ex-bank traders. Covers majors and select minors.',
-    roi: '+22.8%', subs: '1,800+', accuracy: '68%',
-    price: 49, color: '#f472b6', icon: 'ti-currency-dollar',
-    badge: 'Pro', badgeCls: 'red',
-    markets: ['EUR/USD', 'GBP/JPY', 'USD/CHF'],
-    delivery: 'App + SMS',
-  },
-  {
-    id: 'stockpulse',
-    name: 'StockPulse',
-    tag: 'Equities Signals',
-    desc: 'Weekly high-conviction stock picks based on technical and fundamental confluence.',
-    roi: '+31.4%', subs: '920+', accuracy: '71%',
-    price: 29, color: '#38bdf8', icon: 'ti-chart-bar',
-    badge: null, badgeCls: null,
-    markets: ['NVDA', 'AAPL', 'SPY'],
-    delivery: 'App + Email',
-  },
-];
-
-const ACTIVE_SUBS = [
-  { name: 'AlphaGrid',  type: 'Bot',    status: 'Running', statusCls: 'green', pnl: '+$842', pnlPos: true,  renews: 'Jun 1',  price: '$29/mo' },
-  { name: 'DCA Master', type: 'Bot',    status: 'Running', statusCls: 'green', pnl: '+$405', pnlPos: true,  renews: 'Jun 4',  price: '$15/mo' },
-  { name: 'CryptoEdge', type: 'Signal', status: 'Active',  statusCls: 'blue',  pnl: '—',     pnlPos: false, renews: 'Jun 7',  price: '$39/mo' },
-];
+/* ─── All data comes from Supabase — no hardcoded constants ── */
 
 /* ─── Components ─────────────────────────────────────────────────────────────── */
 
-function Sidebar({ open }) {
+function Sidebar({ open, user, onLogout }) {
+  const initials    = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : '??';
+  const displayName = user ? `${user.first_name} ${user.last_name}` : 'Loading…';
+  const planLabel   = user ? `${user.plan.charAt(0).toUpperCase() + user.plan.slice(1)} · ${user.is_verified ? 'Verified' : 'Unverified'}` : '';
+  const balance     = user?.balance ?? 0;
+  const balStr      = balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   const mainLinks = [
-    { icon: 'ti-layout-dashboard', label: 'Dashboard' },
-    { icon: 'ti-copy',             label: 'Copy Trading' },
-    { icon: 'ti-users',            label: 'Hire a Trader' },
-    { icon: 'ti-chart-line',       label: 'Insights' },
-    { icon: 'ti-robot',            label: 'Marketplace', active: true, badge: 'NEW' },
+    { href:'/dashboard', icon: 'ti-layout-dashboard', label: 'Dashboard' },
+    { href:'/copy-trading', icon: 'ti-copy',             label: 'Copy Trading' },
+    { href:'/hire-trader', icon: 'ti-users',            label: 'Hire a Trader' },
+    { href:'/insights', icon: 'ti-chart-line',       label: 'Insights' },
+    { href:'/market-place', icon: 'ti-robot',            label: 'Marketplace', active: true, badge: 'NEW' },
   ];
   const acctLinks = [
-    { icon: 'ti-credit-card',      label: 'Payments' },
-    { icon: 'ti-user-circle',      label: 'Profile' },
-    { icon: 'ti-settings',         label: 'Settings' },
-    { icon: 'ti-headset',          label: 'Support' },
+    { href:'/payment', icon: 'ti-credit-card', label: 'Payments' },
+    { href:'/profile', icon: 'ti-user-circle', label: 'Profile' },
+    { href:'/settings', icon: 'ti-settings',    label: 'Settings' },
+    { href:'/support', icon: 'ti-headset',     label: 'Support' },
   ];
+
   return (
     <div className={`mp-sidebar${open ? ' open' : ''}`}>
       <div className="mp-brand">
         <div className="mp-brand-icon"><i className="ti ti-trending-up" /></div>
         <div className="mp-brand-name">Trade<em>Flow</em></div>
       </div>
-
       <div className="mp-sb-pill">
-        <div className="mp-sb-pill-label">
-          <span className="mp-live-dot" /> Portfolio Value
-        </div>
-        <div className="mp-sb-pill-val">$48,204</div>
-        <div className="mp-sb-pill-sub">↑ +$1,247 today</div>
+        <div className="mp-sb-pill-label"><span className="mp-live-dot" /> Portfolio Value</div>
+        <div className="mp-sb-pill-val">${balStr}</div>
+        <div className="mp-sb-pill-sub">Available balance</div>
       </div>
-
       <div className="mp-sb-scroll">
         <div className="mp-sb-section">Main</div>
-        {mainLinks.map(({ icon, label, active, badge }) => (
-          <a key={label} href="#" className={`mp-sb-link${active ? ' active' : ''}`}>
-            <i className={`ti ${icon}`} />
-            {label}
+        {mainLinks.map(({ href, icon, label, active, badge }) => (
+          <a key={label} href={href} className={`mp-sb-link${active ? ' active' : ''}`}>
+            <i className={`ti ${icon}`} />{label}
             {badge && <span className="mp-sb-badge">{badge}</span>}
           </a>
         ))}
-
         <div className="mp-sb-section" style={{ marginTop: 8 }}>Account</div>
-        {acctLinks.map(({ icon, label }) => (
-          <a key={label} href="#" className="mp-sb-link">
-            <i className={`ti ${icon}`} />
-            {label}
-          </a>
+        {acctLinks.map(({ href, icon, label }) => (
+          <a key={label} href={href} className="mp-sb-link"><i className={`ti ${icon}`} />{label}</a>
         ))}
       </div>
-
       <div className="mp-sb-user">
-        <div className="mp-sb-avatar">AK</div>
-        <div>
-          <div className="mp-sb-user-name">Alex Kim</div>
-          <div className="mp-sb-user-role">Pro · Verified</div>
+        <div className="mp-sb-avatar">{initials}</div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="mp-sb-user-name">{displayName}</div>
+          <div className="mp-sb-user-role">{planLabel}</div>
         </div>
+        <button onClick={onLogout} title="Sign out"
+          style={{ background: 'none', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: 16, padding: 4, flexShrink: 0 }}>
+          <i className="ti ti-logout" />
+        </button>
       </div>
     </div>
   );
 }
 
-function Topbar({ onMenu }) {
+function Topbar({ onMenu, user }) {
+  const initials = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : '??';
+  const hour     = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return (
     <div className="mp-topbar">
-      <div className="mp-hamburger" onClick={onMenu}>
-        <span /><span /><span />
-      </div>
-      <div className="mp-topbar-title">Trade<span>Flow</span></div>
+      <div className="mp-hamburger" onClick={onMenu}><span /><span /><span /></div>
+      <div className="mp-topbar-title">{greeting}, <span>{user?.first_name || '…'}</span></div>
       <div style={{ flex: 1 }} />
       <div style={{ fontFamily: T.mono, fontSize: 12, color: T.nt, display: 'flex', alignItems: 'center', gap: 4 }}>
         <span style={{ color: T.gn }}>▲</span> BTC $67,420
       </div>
-      <div className="mp-topbar-icon">
-        <i className="ti ti-search" />
-      </div>
-      <div className="mp-topbar-icon">
-        <i className="ti ti-bell" />
-        <span className="mp-notif-dot" />
-      </div>
-      <div className="mp-topbar-avatar">AK</div>
+      <div className="mp-topbar-icon"><i className="ti ti-search" /></div>
+      <div className="mp-topbar-icon"><i className="ti ti-bell" /><span className="mp-notif-dot" /></div>
+      <div className="mp-topbar-avatar">{initials}</div>
     </div>
   );
 }
@@ -677,57 +583,49 @@ function MetricCard({ m }) {
   );
 }
 
-function BotCard({ bot, onActivate }) {
+/* ── Item cards — driven entirely by the DB row ── */
+function BotCard({ item, onActivate }) {
   const [hovered, setHovered] = useState(false);
+  const roi      = item.roi_12m_pct != null ? `+${parseFloat(item.roi_12m_pct).toFixed(1)}%` : '—';
+  const winRate  = item.win_rate_pct != null ? `${parseFloat(item.win_rate_pct).toFixed(1)}%` : '—';
+  const trades   = item.total_trades != null ? item.total_trades.toLocaleString() : '—';
   return (
-    <div
-      className="mp-item-card"
+    <div className="mp-item-card"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {bot.badge && (
-        <span className={`mp-badge mp-badge-${bot.badgeCls}`} style={{ position: 'absolute', top: 14, right: 14 }}>
-          {bot.badge}
+      {item.badge_label && (
+        <span className={`mp-badge mp-badge-${item.badge_type || 'gold'}`}
+          style={{ position: 'absolute', top: 14, right: 14 }}>
+          {item.badge_label}
         </span>
       )}
       <div className="mp-item-card-top">
         <div className="mp-item-card-left">
-          <div className="mp-item-icon" style={{ background: bot.color }}>
-            <i className={`ti ${bot.icon}`} />
+          <div className="mp-item-icon" style={{ background: item.color_hex || T.g }}>
+            <i className={`ti ${item.icon_class || 'ti-robot'}`} />
           </div>
           <div>
-            <div className="mp-item-name">{bot.name}</div>
-            <div className="mp-item-tag">{bot.tag}</div>
+            <div className="mp-item-name">{item.name}</div>
+            <div className="mp-item-tag">{item.tag}</div>
           </div>
         </div>
       </div>
-      <p className="mp-item-desc">{bot.desc}</p>
+      <p className="mp-item-desc">{item.description}</p>
       <div className="mp-item-stats">
-        <div>
-          <div className="mp-stat-val" style={{ color: T.gn }}>{bot.roi}</div>
-          <div className="mp-stat-lbl">12m ROI</div>
-        </div>
-        <div>
-          <div className="mp-stat-val">{bot.trades}</div>
-          <div className="mp-stat-lbl">Trades</div>
-        </div>
-        <div>
-          <div className="mp-stat-val">{bot.winRate}</div>
-          <div className="mp-stat-lbl">Win Rate</div>
-        </div>
+        <div><div className="mp-stat-val" style={{ color: T.gn }}>{roi}</div><div className="mp-stat-lbl">12m ROI</div></div>
+        <div><div className="mp-stat-val">{trades}</div><div className="mp-stat-lbl">Trades</div></div>
+        <div><div className="mp-stat-val">{winRate}</div><div className="mp-stat-lbl">Win Rate</div></div>
       </div>
       <div className="mp-markets">
-        {bot.markets.map(m => <span key={m} className="mp-market-tag">{m}</span>)}
+        {(item.markets || []).map(m => <span key={m} className="mp-market-tag">{m}</span>)}
       </div>
       <div className="mp-item-footer">
         <div>
-          <span className="mp-price">${bot.price}</span>
+          <span className="mp-price">${item.price_monthly}</span>
           <span className="mp-per">/month</span>
         </div>
-        <button
-          className="mp-btn mp-btn-accent mp-btn-sm"
-          onClick={() => onActivate(bot, 'bot')}
-        >
+        <button className="mp-btn mp-btn-accent mp-btn-sm" onClick={() => onActivate(item, 'bot')}>
           <i className="ti ti-player-play" /> Activate
         </button>
       </div>
@@ -735,55 +633,47 @@ function BotCard({ bot, onActivate }) {
   );
 }
 
-function SignalCard({ signal, onSubscribe }) {
+function SignalCard({ item, onSubscribe }) {
+  const roi      = item.roi_12m_pct != null ? `+${parseFloat(item.roi_12m_pct).toFixed(1)}%` : '—';
+  const accuracy = item.accuracy_pct != null ? `${parseFloat(item.accuracy_pct).toFixed(1)}%` : '—';
+  const subs     = item.subscriber_count != null ? `${item.subscriber_count.toLocaleString()}+` : '—';
   return (
     <div className="mp-item-card">
-      {signal.badge && (
-        <span className={`mp-badge mp-badge-${signal.badgeCls}`} style={{ position: 'absolute', top: 14, right: 14 }}>
-          {signal.badge}
+      {item.badge_label && (
+        <span className={`mp-badge mp-badge-${item.badge_type || 'blue'}`}
+          style={{ position: 'absolute', top: 14, right: 14 }}>
+          {item.badge_label}
         </span>
       )}
       <div className="mp-item-card-top">
         <div className="mp-item-card-left">
-          <div className="mp-item-icon" style={{ background: signal.color }}>
-            <i className={`ti ${signal.icon}`} />
+          <div className="mp-item-icon" style={{ background: item.color_hex || T.bl }}>
+            <i className={`ti ${item.icon_class || 'ti-broadcast'}`} />
           </div>
           <div>
-            <div className="mp-item-name">{signal.name}</div>
-            <div className="mp-item-tag">{signal.tag}</div>
+            <div className="mp-item-name">{item.name}</div>
+            <div className="mp-item-tag">{item.tag}</div>
           </div>
         </div>
       </div>
-      <p className="mp-item-desc">{signal.desc}</p>
+      <p className="mp-item-desc">{item.description}</p>
       <div className="mp-item-stats">
-        <div>
-          <div className="mp-stat-val" style={{ color: T.gn }}>{signal.roi}</div>
-          <div className="mp-stat-lbl">12m ROI</div>
-        </div>
-        <div>
-          <div className="mp-stat-val">{signal.subs}</div>
-          <div className="mp-stat-lbl">Subscribers</div>
-        </div>
-        <div>
-          <div className="mp-stat-val">{signal.accuracy}</div>
-          <div className="mp-stat-lbl">Accuracy</div>
-        </div>
+        <div><div className="mp-stat-val" style={{ color: T.gn }}>{roi}</div><div className="mp-stat-lbl">12m ROI</div></div>
+        <div><div className="mp-stat-val">{subs}</div><div className="mp-stat-lbl">Subscribers</div></div>
+        <div><div className="mp-stat-val">{accuracy}</div><div className="mp-stat-lbl">Accuracy</div></div>
       </div>
       <div className="mp-markets">
-        {signal.markets.map(m => <span key={m} className="mp-market-tag">{m}</span>)}
+        {(item.markets || []).map(m => <span key={m} className="mp-market-tag">{m}</span>)}
       </div>
-      <div className="mp-delivery">
-        <i className="ti ti-send" /> Delivered via {signal.delivery}
-      </div>
+      {item.delivery_method && (
+        <div className="mp-delivery"><i className="ti ti-send" /> Delivered via {item.delivery_method}</div>
+      )}
       <div className="mp-item-footer">
         <div>
-          <span className="mp-price">${signal.price}</span>
+          <span className="mp-price">${item.price_monthly}</span>
           <span className="mp-per">/month</span>
         </div>
-        <button
-          className="mp-btn mp-btn-accent mp-btn-sm"
-          onClick={() => onSubscribe(signal, 'signal')}
-        >
+        <button className="mp-btn mp-btn-accent mp-btn-sm" onClick={() => onSubscribe(item, 'signal')}>
           <i className="ti ti-bell-ringing" /> Subscribe
         </button>
       </div>
@@ -791,89 +681,247 @@ function SignalCard({ signal, onSubscribe }) {
   );
 }
 
-function ActiveSubscriptions() {
+/* ── Active Subscriptions — fetched from marketplace_subscriptions JOIN marketplace_items ── */
+function ActiveSubscriptions({ userId, refreshKey }) {
+  const [subs,    setSubs]    = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [err,     setErr]     = useState('');
+
+  useEffect(() => {
+    if (!userId) return;
+    const load = async () => {
+      setLoading(true); setErr('');
+      const { data, error } = await supabase
+        .from('marketplace_subscriptions')
+        .select(`
+          id, status, pnl_30d, renews_at, started_at,
+          marketplace_items (
+            id, name, type, price_monthly
+          )
+        `)
+        .eq('user_id', userId)
+        .in('status', ['active', 'paused'])
+        .order('started_at', { ascending: false });
+
+      setLoading(false);
+      if (error) { setErr(error.message); return; }
+      setSubs(data || []);
+    };
+    load();
+  }, [userId, refreshKey]);
+
+  const fmtDate = ts => ts
+    ? new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : '—';
+
   return (
     <div className="mp-active-row">
       <div className="mp-active-head">
         <div className="mp-active-title"><em style={{ fontStyle: 'italic', color: T.g }}>Active</em> Subscriptions</div>
-        <a href="#" className="mp-btn mp-btn-ghost mp-btn-sm">
-          <i className="ti ti-settings" /> Manage All
-        </a>
+        <a href="#" className="mp-btn mp-btn-ghost mp-btn-sm"><i className="ti ti-settings" /> Manage All</a>
       </div>
-      <table className="mp-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Type</th>
-            <th>Status</th>
-            <th>P&amp;L (30D)</th>
-            <th>Renews</th>
-            <th>Price</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {ACTIVE_SUBS.map(s => (
-            <tr key={s.name}>
-              <td style={{ fontWeight: 600 }}>{s.name}</td>
-              <td>
-                <span className={`mp-badge mp-badge-${s.type === 'Bot' ? 'gold' : 'blue'}`}>{s.type}</span>
-              </td>
-              <td>
-                <span className={`mp-badge mp-badge-${s.statusCls}`}>{s.status}</span>
-              </td>
-              <td style={{ fontFamily: T.mono, color: s.pnlPos ? T.gn : T.nt }}>{s.pnl}</td>
-              <td style={{ color: T.nt }}>{s.renews}</td>
-              <td style={{ fontFamily: T.mono }}>{s.price}</td>
-              <td>
-                <button className="mp-table-manage-btn">Manage</button>
-              </td>
+
+      {loading ? (
+        <div style={{ padding: '24px', textAlign: 'center', color: T.nt, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          <i className="ti ti-loader-2" style={{ fontSize: 18 }} /> Loading subscriptions…
+        </div>
+      ) : err ? (
+        <div style={{ padding: '14px 20px', color: T.rd, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+          <i className="ti ti-alert-circle" /> {err}
+        </div>
+      ) : subs.length === 0 ? (
+        <div style={{ padding: '28px', textAlign: 'center', color: T.nt, fontSize: 13 }}>
+          No active subscriptions yet. Browse bots and signal plans below.
+        </div>
+      ) : (
+        <table className="mp-table">
+          <thead>
+            <tr>
+              <th>Name</th><th>Type</th><th>Status</th>
+              <th>P&amp;L (30D)</th><th>Renews</th><th>Price</th><th></th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {subs.map(s => {
+              const item    = s.marketplace_items;
+              const isBot   = item?.type === 'bot';
+              const pnl     = parseFloat(s.pnl_30d || 0);
+              const pnlStr  = pnl !== 0 ? (pnl > 0 ? `+$${pnl.toLocaleString()}` : `-$${Math.abs(pnl).toLocaleString()}`) : '—';
+              const pnlPos  = pnl >= 0;
+              const statusCls = s.status === 'active' ? (isBot ? 'green' : 'blue') : 'amber';
+              const statusLbl = s.status === 'active' ? (isBot ? 'Running' : 'Active') : 'Paused';
+              return (
+                <tr key={s.id}>
+                  <td style={{ fontWeight: 600 }}>{item?.name || '—'}</td>
+                  <td><span className={`mp-badge mp-badge-${isBot ? 'gold' : 'blue'}`}>{isBot ? 'Bot' : 'Signal'}</span></td>
+                  <td><span className={`mp-badge mp-badge-${statusCls}`}>{statusLbl}</span></td>
+                  <td style={{ fontFamily: T.mono, color: pnlPos ? T.gn : T.rd }}>{pnlStr}</td>
+                  <td style={{ color: T.nt }}>{fmtDate(s.renews_at)}</td>
+                  <td style={{ fontFamily: T.mono }}>${item?.price_monthly}/mo</td>
+                  <td><button className="mp-table-manage-btn">Manage</button></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }
 
-function SubscribeModal({ item, type, onClose }) {
-  const [step, setStep] = useState(1);
-  const isBot = type === 'bot';
+/* ── Subscribe / Activate modal — 3-step: confirm → payment → success ── */
+function SubscribeModal({ item, type, onClose, userId, onSuccess }) {
+  const [step,           setStep]           = useState(1);
+  const [saving,         setSaving]         = useState(false);
+  const [saveErr,        setSaveErr]        = useState('');
+
+  // Platform crypto deposit wallets
+  const [cryptoWallets,  setCryptoWallets]  = useState([]);
+  const [cryptoLoading,  setCryptoLoading]  = useState(false);
+
+  // Payment UI
+  const [selectedCrypto, setSelectedCrypto] = useState(null);
+  const [copied,         setCopied]         = useState(false);
+  const [paying,         setPaying]         = useState(false);
+  const [payErr,         setPayErr]         = useState('');
+
+  // Success receipt
+  const [receipt,        setReceipt]        = useState(null);
+
+  const isBot       = type === 'bot';
+  const annualPrice = parseFloat(item.price_monthly || 0) * 12;
+
+  const roi      = item.roi_12m_pct  != null ? `+${parseFloat(item.roi_12m_pct).toFixed(1)}%`  : '—';
+  const winRate  = item.win_rate_pct != null ? `${parseFloat(item.win_rate_pct).toFixed(1)}%`  : '—';
+  const trades   = item.total_trades != null ? item.total_trades.toLocaleString()               : '—';
+  const accuracy = item.accuracy_pct != null ? `${parseFloat(item.accuracy_pct).toFixed(1)}%`  : '—';
+  const subs     = item.subscriber_count != null ? `${item.subscriber_count.toLocaleString()}+` : '—';
 
   const stats = isBot
-    ? [
-        { label: '12m ROI',  val: item.roi,      color: T.gn },
-        { label: 'Trades',   val: item.trades,   color: T.gr },
-        { label: 'Win Rate', val: item.winRate,  color: T.gr },
-      ]
-    : [
-        { label: '12m ROI',  val: item.roi,       color: T.gn },
-        { label: 'Subscribers', val: item.subs,   color: T.gr },
-        { label: 'Accuracy', val: item.accuracy,  color: T.gr },
-      ];
+    ? [{ label: '12m ROI', val: roi, color: T.gn }, { label: 'Trades', val: trades, color: T.gr }, { label: 'Win Rate', val: winRate, color: T.gr }]
+    : [{ label: '12m ROI', val: roi, color: T.gn }, { label: 'Subscribers', val: subs, color: T.gr }, { label: 'Accuracy', val: accuracy, color: T.gr }];
+
+  /* ── Step 1 → 2: check existing sub, load wallet + crypto options ── */
+  const handleConfirm = async () => {
+    if (!userId) { setSaveErr('You must be logged in to subscribe.'); return; }
+    setSaving(true); setSaveErr('');
+
+    const { data: existing } = await supabase
+      .from('marketplace_subscriptions')
+      .select('id')
+      .eq('user_id', userId)
+      .eq('item_id', item.id)
+      .in('status', ['active', 'paused'])
+      .maybeSingle();
+
+    if (existing) {
+      setSaveErr('You already have an active subscription for this item.');
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+
+    // Fetch platform crypto deposit addresses only
+    setCryptoLoading(true);
+    const { data: crypto } = await supabase
+      .from('platform_crypto_wallets')
+      .select('*')
+      .eq('is_active', true)
+      .order('is_default', { ascending: false });
+    setCryptoLoading(false);
+
+    setCryptoWallets(crypto || []);
+    const def = (crypto || []).find(c => c.is_default) || (crypto || [])[0];
+    if (def) setSelectedCrypto(def);
+    setStep(2);
+  };
+
+  /* ── Crypto pay: record pending tx, create sub ── */
+  const handleCryptoPay = async () => {
+    if (!selectedCrypto) return;
+    setPaying(true); setPayErr('');
+
+    await supabase.from('transactions').insert({
+      user_id:     userId,
+      type:        'marketplace_purchase',
+      amount:      -annualPrice,
+      currency:    'USD',
+      description: `Annual ${isBot ? 'bot' : 'signal'} plan: ${item.name} — awaiting ${selectedCrypto.symbol} deposit`,
+      status:      'pending',
+    });
+
+    await _createSub();
+    setReceipt({ method: selectedCrypto.symbol, amount: `$${annualPrice.toFixed(2)} equiv.`, crypto: selectedCrypto });
+    setPaying(false);
+    onSuccess();
+    setStep(3);
+  };
+
+  /* ── Shared: insert marketplace_subscriptions row ── */
+  const _createSub = async () => {
+    const renewsAt = new Date();
+    renewsAt.setFullYear(renewsAt.getFullYear() + 1);
+    await supabase.from('marketplace_subscriptions').insert({
+      user_id:   userId,
+      item_id:   item.id,
+      status:    'active',
+      pnl_30d:   0,
+      renews_at: renewsAt.toISOString(),
+    });
+  };
+
+  const copyAddress = () => {
+    if (!selectedCrypto?.address) return;
+    navigator.clipboard.writeText(selectedCrypto.address).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+
+
+  /* ── Step indicator shared ── */
+  const StepBar = ({ active }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <div style={{ width: 22, height: 22, borderRadius: '50%', background: active === 1 ? T.g : T.gn, color: '#000', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {active > 1 ? <i className="ti ti-check" style={{ fontSize: 11 }} /> : '1'}
+        </div>
+        <span style={{ fontSize: 11, fontWeight: active === 1 ? 700 : 400, color: active === 1 ? T.g : T.nt }}>Confirm</span>
+      </div>
+      <div style={{ flex: 1, height: 1, background: active > 1 ? T.g : T.br }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <div style={{ width: 22, height: 22, borderRadius: '50%', background: active === 2 ? T.g : active > 2 ? T.gn : T.br, color: active >= 2 ? '#000' : T.nt, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {active > 2 ? <i className="ti ti-check" style={{ fontSize: 11 }} /> : '2'}
+        </div>
+        <span style={{ fontSize: 11, fontWeight: active === 2 ? 700 : 400, color: active === 2 ? T.g : T.nt }}>Payment</span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="mp-modal-overlay" onClick={onClose}>
-      <div className="mp-modal" onClick={e => e.stopPropagation()}>
+      <div className="mp-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
         <button className="mp-modal-close" onClick={onClose}>✕</button>
 
-        {step === 1 ? (
+        {/* ════════════════ STEP 1: Plan Confirmation ════════════════ */}
+        {step === 1 && (
           <>
-            {/* Header */}
+            <StepBar active={1} />
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
-              <div className="mp-item-icon" style={{ background: item.color, width: 50, height: 50, borderRadius: 13 }}>
-                <i className={`ti ${item.icon}`} style={{ fontSize: 22 }} />
+              <div className="mp-item-icon" style={{ background: item.color_hex || T.g, width: 50, height: 50, borderRadius: 13 }}>
+                <i className={`ti ${item.icon_class || 'ti-robot'}`} style={{ fontSize: 22 }} />
               </div>
               <div>
                 <div style={{ fontFamily: T.serif, fontSize: 19, fontWeight: 600, marginBottom: 4 }}>{item.name}</div>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 12, color: T.nt }}>{item.tag}</span>
-                  {item.badge && <span className={`mp-badge mp-badge-${item.badgeCls}`}>{item.badge}</span>}
+                  {item.badge_label && <span className={`mp-badge mp-badge-${item.badge_type || 'gold'}`}>{item.badge_label}</span>}
                 </div>
               </div>
             </div>
 
-            {/* Stats */}
             <div className="mp-modal-stats">
               {stats.map(({ label, val, color }) => (
                 <div key={label}>
@@ -883,12 +931,10 @@ function SubscribeModal({ item, type, onClose }) {
               ))}
             </div>
 
-            {/* Description */}
             <div style={{ fontSize: 12, color: T.nt, marginBottom: 20, lineHeight: 1.6, padding: '10px 12px', background: T.s2, borderRadius: 8 }}>
-              {item.desc}
+              {item.description}
             </div>
 
-            {/* Order summary */}
             <div className="mp-order-summary">
               <div className="mp-order-row">
                 <span className="mp-order-row-label">{isBot ? 'Bot plan' : 'Signal plan'}</span>
@@ -896,46 +942,205 @@ function SubscribeModal({ item, type, onClose }) {
               </div>
               <div className="mp-order-row">
                 <span className="mp-order-row-label">Billing</span>
-                <span>Monthly</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Annual
+                  <span style={{ fontSize: 10, background: 'rgba(200,245,96,.15)', color: T.g, padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>1 YEAR</span>
+                </span>
               </div>
-              {!isBot && (
+              {!isBot && item.delivery_method && (
                 <div className="mp-order-row">
-                  <span className="mp-order-row-label">Delivery</span>
-                  <span>{item.delivery}</span>
+                  <span className="mp-order-row-label">Delivery</span><span>{item.delivery_method}</span>
                 </div>
               )}
+              <div className="mp-order-row" style={{ opacity: .65 }}>
+                <span className="mp-order-row-label">Monthly rate</span>
+                <span style={{ fontFamily: T.mono }}>${parseFloat(item.price_monthly).toFixed(2)}/mo</span>
+              </div>
+              <div className="mp-order-row" style={{ opacity: .65 }}>
+                <span className="mp-order-row-label">× 12 months</span>
+                <span style={{ fontFamily: T.mono }}>= ${annualPrice.toFixed(2)}</span>
+              </div>
               <div className="mp-order-total">
-                <span>Total today</span>
-                <span style={{ color: T.g, fontFamily: T.mono }}>${item.price}.00</span>
+                <span>Annual total</span>
+                <span style={{ color: T.g, fontFamily: T.mono }}>${annualPrice.toFixed(2)}</span>
               </div>
             </div>
 
+            {saveErr && (
+              <div style={{ background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.25)', borderRadius: 8, padding: '10px 14px', marginBottom: 14, fontSize: 12, color: T.rd, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <i className="ti ti-alert-circle" /> {saveErr}
+              </div>
+            )}
             <div className="mp-disclaimer">
               <i className="ti ti-info-circle" style={{ color: T.g, fontSize: 13, verticalAlign: -2, marginRight: 5 }} />
               {isBot
-                ? 'Automated bots involve risk. Past performance is not a guarantee of future results. Only allocate capital you can afford to lose.'
-                : 'Signal accuracy is historical and does not guarantee future results. Always apply your own risk management.'}
+                ? 'Automated bots involve risk. Past performance does not guarantee future results.'
+                : 'Signal accuracy is historical and does not guarantee future results.'}
             </div>
 
             <div style={{ display: 'flex', gap: 8 }}>
               <button className="mp-btn mp-btn-ghost mp-btn-sm" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
-              <button className="mp-btn mp-btn-accent mp-btn-sm" style={{ flex: 1, padding: '10px 0', fontWeight: 700, fontSize: 13 }} onClick={() => setStep(2)}>
-                {isBot ? 'Confirm & Activate →' : 'Confirm & Subscribe →'}
+              <button className="mp-btn mp-btn-accent mp-btn-sm"
+                style={{ flex: 1, padding: '10px 0', fontWeight: 700, fontSize: 13 }}
+                onClick={handleConfirm} disabled={saving}>
+                {saving
+                  ? <><i className="ti ti-loader-2" style={{ fontSize: 14 }} /> Checking…</>
+                  : isBot ? 'Confirm & Activate →' : 'Confirm & Subscribe →'}
               </button>
             </div>
           </>
-        ) : (
-          <div style={{ textAlign: 'center', padding: '16px 0' }}>
-            <div className="mp-success-ring">
-              <i className="ti ti-check" />
+        )}
+
+        {/* ════════════════ STEP 2: Payment ════════════════ */}
+        {step === 2 && (
+          <>
+            <StepBar active={2} />
+
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(200,245,96,.12)', border: '1px solid rgba(200,245,96,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="ti ti-currency-bitcoin" style={{ fontSize: 18, color: T.g }} />
+              </div>
+              <div>
+                <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>Crypto Deposit</div>
+                <div style={{ fontSize: 11, color: T.nt, marginTop: 2 }}>
+                  Send <span style={{ fontFamily: T.mono, color: T.g, fontWeight: 700 }}>${annualPrice.toFixed(2)}</span> equivalent to activate your 1-year {isBot ? 'bot' : 'signal'} plan
+                </div>
+              </div>
             </div>
+
+            {/* Crypto coin selector */}
+            <>
+              <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: T.nt, marginBottom: 8, textTransform: 'uppercase', letterSpacing: .8 }}>Select coin</div>
+                  {cryptoLoading ? (
+                    <div style={{ color: T.nt, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}><i className="ti ti-loader-2" /> Loading…</div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {cryptoWallets.map(cw => {
+                        const active = selectedCrypto?.id === cw.id;
+                        return (
+                          <button key={cw.id}
+                            onClick={() => setSelectedCrypto(cw)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9,
+                              background: active ? `${cw.color}22` : T.s2,
+                              border: `1px solid ${active ? cw.color : T.br}`,
+                              cursor: 'pointer', transition: 'all .15s', fontFamily: T.sans }}>
+                            <i className={`ti ${cw.icon}`} style={{ fontSize: 16, color: cw.color }} />
+                            <div style={{ textAlign: 'left' }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: active ? cw.color : T.gr }}>{cw.symbol}</div>
+                              <div style={{ fontSize: 10, color: T.nt }}>{cw.name}</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                      {cryptoWallets.length === 0 && (
+                        <div style={{ fontSize: 12, color: T.nt }}>No crypto wallets configured.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Selected crypto deposit details */}
+                {selectedCrypto && (
+                  <div style={{ background: T.s2, border: `1px solid ${T.br}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${T.br}` }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 9, background: `${selectedCrypto.color}22`, border: `1px solid ${selectedCrypto.color}44`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <i className={`ti ${selectedCrypto.icon}`} style={{ fontSize: 18, color: selectedCrypto.color }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.gr }}>{selectedCrypto.name}</div>
+                        <div style={{ fontSize: 11, color: T.nt }}>{selectedCrypto.network}</div>
+                      </div>
+                      {selectedCrypto.is_default && (
+                        <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, background: 'rgba(200,245,96,.12)', color: T.g, padding: '2px 7px', borderRadius: 4, border: '1px solid rgba(200,245,96,.2)' }}>DEFAULT</span>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.nt, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Deposit Address</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.bg, borderRadius: 8, border: `1px solid ${T.br}`, padding: '10px 12px', marginBottom: 12 }}>
+                      <div style={{ flex: 1, fontFamily: T.mono, fontSize: 11, color: T.gr, wordBreak: 'break-all', lineHeight: 1.5 }}>
+                        {selectedCrypto.address}
+                      </div>
+                      <button
+                        onClick={copyAddress}
+                        style={{ flexShrink: 0, background: copied ? 'rgba(52,211,153,.15)' : T.s2, border: `1px solid ${copied ? T.gn : T.br}`, borderRadius: 6, padding: '6px 10px', cursor: 'pointer', color: copied ? T.gn : T.nt, fontFamily: T.sans, fontSize: 11, fontWeight: 600, transition: 'all .2s', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {copied ? <><i className="ti ti-check" style={{ fontSize: 12 }} /> Copied</> : <><i className="ti ti-copy" style={{ fontSize: 12 }} /> Copy</>}
+                      </button>
+                    </div>
+
+                    <div style={{ background: 'rgba(200,245,96,.05)', border: '1px solid rgba(200,245,96,.12)', borderRadius: 8, padding: '10px 12px', fontSize: 11, color: T.nt, lineHeight: 1.6 }}>
+                      <i className="ti ti-info-circle" style={{ color: T.g, marginRight: 5, verticalAlign: -2 }} />
+                      Send exactly <span style={{ fontFamily: T.mono, color: T.g, fontWeight: 700 }}>${annualPrice.toFixed(2)}</span> equivalent in <strong style={{ color: T.gr }}>{selectedCrypto.symbol}</strong> to this address. Your plan activates once the deposit is confirmed.
+                    </div>
+                  </div>
+                )}
+
+                {payErr && (
+                  <div style={{ background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.25)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: T.rd, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className="ti ti-alert-circle" /> {payErr}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="mp-btn mp-btn-ghost mp-btn-sm" style={{ padding: '10px 16px' }} onClick={() => setStep(1)} disabled={paying}>
+                    <i className="ti ti-arrow-left" />
+                  </button>
+                  <button className="mp-btn mp-btn-accent mp-btn-sm"
+                    style={{ flex: 1, padding: '10px 0', fontWeight: 700, fontSize: 13, opacity: selectedCrypto ? 1 : .4 }}
+                    onClick={handleCryptoPay} disabled={paying || !selectedCrypto}>
+                    {paying ? <><i className="ti ti-loader-2" style={{ fontSize: 14 }} /> Submitting…</> : <><i className="ti ti-send" style={{ fontSize: 13 }} /> I've Sent the Payment →</>}
+                  </button>
+                </div>
+            </>
+
+            <div style={{ textAlign: 'center', marginTop: 12, fontSize: 11, color: T.nt, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+              <i className="ti ti-shield-check" style={{ color: T.gn, fontSize: 12 }} />
+              Secured · TradeFlow encrypted platform
+            </div>
+          </>
+        )}
+
+        {/* ════════════════ STEP 3: Success ════════════════ */}
+        {step === 3 && (
+          <div style={{ textAlign: 'center', padding: '16px 0' }}>
+            <div className="mp-success-ring"><i className="ti ti-check" /></div>
             <div style={{ fontFamily: T.serif, fontSize: 20, marginBottom: 8 }}>
               {isBot ? 'Bot Activated!' : 'Subscribed!'}
             </div>
-            <p style={{ fontSize: 13, color: T.nt, marginBottom: 20, lineHeight: 1.6 }}>
-              <strong style={{ color: T.gr }}>{item.name}</strong> is now {isBot ? 'running on your connected exchange account' : 'sending signals to your dashboard'}.
+            <p style={{ fontSize: 13, color: T.nt, marginBottom: 12, lineHeight: 1.6 }}>
+              <strong style={{ color: T.gr }}>{item.name}</strong> is now {isBot
+                ? 'running on your connected exchange account'
+                : 'sending signals to your dashboard'}.
             </p>
-            <button className="mp-btn mp-btn-accent mp-btn-sm" style={{ padding: '10px 28px', fontWeight: 700 }} onClick={onClose}>
+            {receipt && (
+              <div style={{ background: T.s2, border: `1px solid ${T.br}`, borderRadius: 10, padding: '14px 16px', marginBottom: 20, fontSize: 12, textAlign: 'left' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ color: T.nt }}>Amount</span>
+                  <span style={{ fontFamily: T.mono, color: T.g, fontWeight: 700 }}>{receipt.amount}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ color: T.nt }}>Method</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    {receipt.crypto
+                      ? <><i className={`ti ${receipt.crypto.icon}`} style={{ color: receipt.crypto.color }} />{receipt.method}</>
+                      : <><i className="ti ti-wallet" style={{ color: T.gn }} />{receipt.method}</>}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: T.nt }}>Duration</span>
+                  <span style={{ fontWeight: 600 }}>1 Year</span>
+                </div>
+                {receipt.crypto && (
+                  <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(96,165,250,.07)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 8, fontSize: 11, color: T.bl, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className="ti ti-clock" />
+                    Crypto deposits confirm within 1–3 hours. Your plan is already active.
+                  </div>
+                )}
+              </div>
+            )}
+            <button className="mp-btn mp-btn-accent mp-btn-sm"
+              style={{ padding: '10px 28px', fontWeight: 700 }} onClick={onClose}>
               Done
             </button>
           </div>
@@ -947,40 +1152,135 @@ function SubscribeModal({ item, type, onClose }) {
 
 /* ─── Root ───────────────────────────────────────────────────────────────────── */
 export default function Marketplace() {
-  const [tab, setTab]         = useState('bots');
-  const [modal, setModal]     = useState(null);
-  const [modalType, setModalType] = useState(null);
+  const [user,        setUser]        = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [tab,         setTab]         = useState('bots');
+  const [modal,       setModal]       = useState(null);
+  const [modalType,   setModalType]   = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [filters, setFilters] = useState({ sort: 'roi' });
+  const [sortBy,      setSortBy]      = useState('roi');
+  const [refreshKey,  setRefreshKey]  = useState(0);
 
-  const openModal = (item, type) => { setModal(item); setModalType(type); };
+  // marketplace_items fetched from DB
+  const [bots,        setBots]        = useState([]);
+  const [signals,     setSignals]     = useState([]);
+  const [itemsLoading,setItemsLoading]= useState(true);
+  const [itemsErr,    setItemsErr]    = useState('');
+
+  // metrics derived from marketplace_subscriptions
+  const [metrics, setMetrics] = useState([
+    { label: 'Active Subs',   value: '—', sub: 'Loading…',       icon: 'ti-stack-2',     iconBg: 'rgba(200,245,96,.12)',  iconColor: '#c8f560' },
+    { label: 'Monthly Spend', value: '—', sub: 'Calculating…',   icon: 'ti-credit-card', iconBg: 'rgba(96,165,250,.12)',  iconColor: '#60a5fa' },
+    { label: 'Bot P&L (30D)', value: '—', sub: 'Awaiting data',  icon: 'ti-trending-up', iconBg: 'rgba(52,211,153,.12)',  iconColor: '#34d399' },
+    { label: 'Total Items',   value: '—', sub: 'In marketplace', icon: 'ti-broadcast',   iconBg: 'rgba(167,139,250,.12)', iconColor: '#a78bfa' },
+  ]);
+
+  /* ── Auth ── */
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        const uid = session.user.id;
+        const [{ data: profile }, { data: wallet }] = await Promise.all([
+          supabase.from('users').select('id, first_name, last_name, handle, plan, is_verified').eq('id', uid).single(),
+          supabase.from('wallets').select('balance').eq('user_id', uid).eq('currency', 'USD').maybeSingle(),
+        ]);
+        if (profile) setUser({ ...profile, balance: parseFloat(wallet?.balance ?? 0) });
+      }
+      setAuthLoading(false);
+    });
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
+      if (!session) setUser(null);
+    });
+    return () => subscription.unsubscribe();
+  }, []);
+
+  /* ── Fetch marketplace_items from DB ── */
+  useEffect(() => {
+    const load = async () => {
+      setItemsLoading(true); setItemsErr('');
+      const { data, error } = await supabase
+        .from('marketplace_items')
+        .select(`
+          id, slug, type, name, tag, description, price_monthly,
+          badge_label, badge_type, icon_class, color_hex,
+          delivery_method, markets, roi_12m_pct, win_rate_pct,
+          total_trades, accuracy_pct, subscriber_count, is_active
+        `)
+        .eq('is_active', true)
+        .order('subscriber_count', { ascending: false });
+
+      setItemsLoading(false);
+      if (error) { setItemsErr(error.message); return; }
+      setBots((data || []).filter(i => i.type === 'bot'));
+      setSignals((data || []).filter(i => i.type === 'signal'));
+    };
+    load();
+  }, []);
+
+  /* ── Metrics from marketplace_subscriptions ── */
+  const fetchMetrics = useCallback(async () => {
+    if (!user) return;
+    const { data: subs } = await supabase
+      .from('marketplace_subscriptions')
+      .select(`
+        status, pnl_30d, renews_at,
+        marketplace_items ( type, price_monthly )
+      `)
+      .eq('user_id', user.id)
+      .in('status', ['active', 'paused']);
+
+    const rows       = subs || [];
+    const totalSubs  = rows.length;
+    const botRows    = rows.filter(s => s.marketplace_items?.type === 'bot');
+    const sigRows    = rows.filter(s => s.marketplace_items?.type === 'signal');
+    const totalSpend = rows.reduce((a, r) => a + parseFloat(r.marketplace_items?.price_monthly || 0), 0);
+    const botPnl     = botRows.reduce((a, r) => a + parseFloat(r.pnl_30d || 0), 0);
+    const pnlSign    = botPnl >= 0 ? '+' : '';
+    const renewDates = rows.map(r => r.renews_at).filter(Boolean).sort();
+    const nextRenew  = renewDates[0]
+      ? new Date(renewDates[0]).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : '—';
+
+    setMetrics([
+      { label: 'Active Subs',   value: `${totalSubs}`,    sub: `${botRows.length} bot${botRows.length !== 1 ? 's' : ''} · ${sigRows.length} signal${sigRows.length !== 1 ? 's' : ''}`, icon: 'ti-stack-2',     iconBg: 'rgba(200,245,96,.12)',  iconColor: '#c8f560' },
+      { label: 'Monthly Spend', value: `$${totalSpend.toLocaleString()}`, sub: `Renews ${nextRenew}`,       icon: 'ti-credit-card', iconBg: 'rgba(96,165,250,.12)',  iconColor: '#60a5fa' },
+      { label: 'Bot P&L (30D)', value: botPnl !== 0 ? `${pnlSign}$${Math.abs(botPnl).toLocaleString()}` : '$0', sub: botRows.length > 0 ? 'Across active bots' : 'No active bots', icon: 'ti-trending-up', iconBg: 'rgba(52,211,153,.12)',  iconColor: '#34d399' },
+      { label: 'Total Items',   value: `${bots.length + signals.length}`, sub: `${bots.length} bots · ${signals.length} signals`, icon: 'ti-broadcast', iconBg: 'rgba(167,139,250,.12)', iconColor: '#a78bfa' },
+    ]);
+  }, [user, bots, signals]);
+
+  useEffect(() => { fetchMetrics(); }, [fetchMetrics, refreshKey]);
+
+  const sort = (arr) => [...arr].sort((a, b) => sortBy === 'price'
+    ? parseFloat(a.price_monthly) - parseFloat(b.price_monthly)
+    : parseFloat(b.roi_12m_pct || 0) - parseFloat(a.roi_12m_pct || 0));
+
+  const openModal  = (item, type) => { setModal(item); setModalType(type); };
   const closeModal = () => { setModal(null); setModalType(null); };
+  const handleSuccess = () => setRefreshKey(k => k + 1);
+  const handleLogout  = async () => { await supabase.auth.signOut(); setUser(null); };
 
-  const sortedBots    = [...BOTS].sort((a, b) => filters.sort === 'price'
-    ? a.price - b.price
-    : parseFloat(b.roi) - parseFloat(a.roi));
-  const sortedSignals = [...SIGNALS].sort((a, b) => filters.sort === 'price'
-    ? a.price - b.price
-    : parseFloat(b.roi) - parseFloat(a.roi));
+  if (authLoading) return (
+    <>
+      <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#080b10', color: '#64748b', fontSize: 14, gap: 10 }}>
+        <i className="ti ti-loader-2" style={{ fontSize: 20 }} /> Loading…
+      </div>
+    </>
+  );
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
-
       {sidebarOpen && (
-        <div onClick={() => setSidebarOpen(false)} style={{
-          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 299,
-        }} />
+        <div onClick={() => setSidebarOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 299 }} />
       )}
-
       <div className="mp-shell">
-        <Sidebar open={sidebarOpen} />
-
+        <Sidebar open={sidebarOpen} user={user} onLogout={handleLogout} />
         <div className="mp-right">
-          <Topbar onMenu={() => setSidebarOpen(v => !v)} />
-
+          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} />
           <main className="mp-main">
-            {/* Page header */}
             <div className="mp-page-header">
               <div>
                 <div className="mp-page-title"><em>Marketplace</em></div>
@@ -989,34 +1289,23 @@ export default function Marketplace() {
                   Automate your edge — deploy bots and subscribe to expert signal plans.
                 </div>
               </div>
-              <div className="mp-header-actions">
-                <a href="#" className="mp-btn mp-btn-ghost mp-btn-sm">
-                  <i className="ti ti-star" /> Wishlist
-                </a>
-                <a href="#" className="mp-btn mp-btn-accent mp-btn-sm">
-                  <i className="ti ti-compass" /> Explore All
-                </a>
-              </div>
+              
             </div>
 
-            {/* Metrics */}
             <div className="mp-metrics">
-              {METRICS.map(m => <MetricCard key={m.label} m={m} />)}
+              {metrics.map(m => <MetricCard key={m.label} m={m} />)}
             </div>
 
-            {/* Active subscriptions */}
-            <ActiveSubscriptions />
+            <ActiveSubscriptions userId={user?.id} refreshKey={refreshKey} />
 
-            {/* Controls */}
             <div className="mp-controls">
               <div className="mp-tabs">
                 {[
-                  { key: 'bots',    label: 'Trading Bots',  icon: 'ti-robot',     count: BOTS.length },
-                  { key: 'signals', label: 'Signal Plans',  icon: 'ti-broadcast', count: SIGNALS.length },
+                  { key: 'bots',    label: 'Trading Bots',  icon: 'ti-robot',     count: bots.length },
+                  { key: 'signals', label: 'Signal Plans',  icon: 'ti-broadcast', count: signals.length },
                 ].map(({ key, label, icon, count }) => (
                   <button key={key} className={`mp-tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
-                    <i className={`ti ${icon}`} />
-                    {label}
+                    <i className={`ti ${icon}`} />{label}
                     <span className="mp-tab-count" style={{
                       background: tab === key ? 'rgba(0,0,0,.2)' : 'rgba(52,211,153,.2)',
                       color: tab === key ? '#000' : T.gn,
@@ -1024,45 +1313,49 @@ export default function Marketplace() {
                   </button>
                 ))}
               </div>
-
               <div className="mp-filters">
-                <select
-                  value={filters.sort}
-                  onChange={e => setFilters(f => ({ ...f, sort: e.target.value }))}
-                  className="mp-select"
-                >
+                <select value={sortBy} onChange={e => setSortBy(e.target.value)} className="mp-select">
                   <option value="roi">Sort: ROI</option>
                   <option value="price">Sort: Price</option>
                 </select>
               </div>
             </div>
 
-            {/* Content */}
-            {tab === 'bots' && (
+            {/* Loading / error state for items */}
+            {itemsLoading ? (
+              <div style={{ textAlign: 'center', padding: '48px 0', color: T.nt, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <i className="ti ti-loader-2" style={{ fontSize: 20 }} /> Loading marketplace…
+              </div>
+            ) : itemsErr ? (
+              <div style={{ padding: '16px', color: T.rd, fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <i className="ti ti-alert-circle" /> {itemsErr}
+              </div>
+            ) : (
               <>
-                <div className="mp-section-intro">
-                  <strong>Trading Bots</strong> run 24/7 on your connected exchange account.
-                  Set your capital allocation and let the bot execute — no manual intervention needed.
-                </div>
-                <div className="mp-grid-3">
-                  {sortedBots.map(b => (
-                    <BotCard key={b.id} bot={b} onActivate={openModal} />
-                  ))}
-                </div>
-              </>
-            )}
-
-            {tab === 'signals' && (
-              <>
-                <div className="mp-section-intro">
-                  <strong>Signal Plans</strong> deliver trade alerts with entry, stop-loss, and take-profit levels
-                  straight to your app, Telegram, or email. You decide which signals to execute.
-                </div>
-                <div className="mp-grid-3">
-                  {sortedSignals.map(s => (
-                    <SignalCard key={s.id} signal={s} onSubscribe={openModal} />
-                  ))}
-                </div>
+                {tab === 'bots' && (
+                  <>
+                    <div className="mp-section-intro">
+                      <strong>Trading Bots</strong> run 24/7 on your connected exchange account.
+                      Set your capital allocation and let the bot execute — no manual intervention needed.
+                    </div>
+                    <div className="mp-grid-3">
+                      {sort(bots).map(b => <BotCard key={b.id} item={b} onActivate={openModal} />)}
+                      {bots.length === 0 && <div style={{ gridColumn: '1/-1', textAlign: 'center', color: T.nt, padding: 40 }}>No bots available right now.</div>}
+                    </div>
+                  </>
+                )}
+                {tab === 'signals' && (
+                  <>
+                    <div className="mp-section-intro">
+                      <strong>Signal Plans</strong> deliver trade alerts with entry, stop-loss, and take-profit levels
+                      straight to your app, Telegram, or email. You decide which signals to execute.
+                    </div>
+                    <div className="mp-grid-3">
+                      {sort(signals).map(s => <SignalCard key={s.id} item={s} onSubscribe={openModal} />)}
+                      {signals.length === 0 && <div style={{ gridColumn: '1/-1', textAlign: 'center', color: T.nt, padding: 40 }}>No signal plans available right now.</div>}
+                    </div>
+                  </>
+                )}
               </>
             )}
           </main>
@@ -1070,7 +1363,13 @@ export default function Marketplace() {
       </div>
 
       {modal && (
-        <SubscribeModal item={modal} type={modalType} onClose={closeModal} />
+        <SubscribeModal
+          item={modal}
+          type={modalType}
+          onClose={closeModal}
+          userId={user?.id}
+          onSuccess={handleSuccess}
+        />
       )}
     </>
   );

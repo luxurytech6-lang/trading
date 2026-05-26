@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import supabase from "../supabase";
 
 const T = {
   bg:'#080b10', s:'#0e1219', s2:'#141922', br:'#1e2535', br2:'#2a3347',
@@ -356,11 +357,47 @@ const FAQS = [
   },
 ];
 
-const TICKETS = [
-  { icon:'ti-alert-circle', iconBg:'rgba(248,113,113,.12)', iconCol:'#f87171', title:'Price alert not firing for BTC/USD', id:'#TF-4821', status:'Open',     statusCol:'in-badge-red',   time:'2h ago',       preview:'I set an alert at $65,000 but it never triggered even though the price crossed it.' },
-  { icon:'ti-credit-card',  iconBg:'rgba(245,158,11,.12)',  iconCol:'#f59e0b', title:'Billing charge appeared twice',     id:'#TF-4790', status:'In Review', statusCol:'in-badge-amber', time:'1 day ago',    preview:'My card was charged $29 twice for the same billing period this month.' },
-  { icon:'ti-check-circle', iconBg:'rgba(52,211,153,.12)',  iconCol:'#34d399', title:'Cannot connect Discord integration', id:'#TF-4755', status:'Resolved',  statusCol:'in-badge-green', time:'3 days ago',   preview:'The OAuth flow kept returning an error when linking Discord.' },
-];
+// TICKETS now fetched from Supabase — see TicketsSection
+
+/* ── Ticket helpers ───────────────────────────────────── */
+function getTicketIcon(category) {
+  const map = {
+    'Account & Profile':    { icon:'ti-user-circle',  iconBg:'rgba(96,165,250,.12)',   iconCol:'#60a5fa' },
+    'Billing':              { icon:'ti-credit-card',   iconBg:'rgba(245,158,11,.12)',   iconCol:'#f59e0b' },
+    'Billing & Subscription': { icon:'ti-credit-card', iconBg:'rgba(245,158,11,.12)',  iconCol:'#f59e0b' },
+    'Trading':              { icon:'ti-chart-candlestick', iconBg:'rgba(167,139,250,.12)', iconCol:'#a78bfa' },
+    'Trading & Positions':  { icon:'ti-chart-candlestick', iconBg:'rgba(167,139,250,.12)', iconCol:'#a78bfa' },
+    'Alerts':               { icon:'ti-bell',          iconBg:'rgba(248,113,113,.12)',  iconCol:'#f87171' },
+    'Alerts & Watchlist':   { icon:'ti-bell',          iconBg:'rgba(248,113,113,.12)',  iconCol:'#f87171' },
+    'Copy Trading':         { icon:'ti-users',         iconBg:'rgba(52,211,153,.12)',   iconCol:'#34d399' },
+    'API':                  { icon:'ti-code',          iconBg:'rgba(200,245,96,.12)',   iconCol:'#c8f560' },
+    'Integrations & API':   { icon:'ti-code',          iconBg:'rgba(200,245,96,.12)',   iconCol:'#c8f560' },
+    'Other':                { icon:'ti-help-circle',   iconBg:'rgba(100,116,139,.12)',  iconCol:'#64748b' },
+  };
+  return map[category] ?? { icon:'ti-ticket', iconBg:'rgba(100,116,139,.12)', iconCol:'#64748b' };
+}
+
+function getStatusBadge(status) {
+  const map = {
+    open:       'in-badge-red',
+    in_review:  'in-badge-amber',
+    resolved:   'in-badge-green',
+    closed:     'in-badge-muted',
+  };
+  return map[status] ?? 'in-badge-muted';
+}
+
+function formatStatusLabel(status) {
+  const map = { open:'Open', in_review:'In Review', resolved:'Resolved', closed:'Closed' };
+  return map[status] ?? status;
+}
+
+function timeAgo(ts) {
+  const diff = (Date.now() - new Date(ts)) / 1000;
+  if (diff < 3600)   return `${Math.round(diff / 60)}m ago`;
+  if (diff < 86400)  return `${Math.round(diff / 3600)}h ago`;
+  return `${Math.round(diff / 86400)}d ago`;
+}
 
 const RESOURCES = [
   { icon:'ti-book',          iconBg:'rgba(96,165,250,.12)',   iconCol:'#60a5fa', title:'Getting Started Guide',   sub:'New to TradeFlow? Start here' },
@@ -386,6 +423,80 @@ function Sidebar({ open }) {
     { icon:'ti-settings', label:'Settings' },
     { icon:'ti-help-circle', label:'Support', active:true },
   ];
+
+  const [portfolio, setPortfolio] = useState(null);
+  const [wallet,    setWallet]    = useState(null);
+  const [profile,   setProfile]   = useState(null);
+
+  React.useEffect(() => {
+    async function fetchSidebarData() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const [snapRes, walletRes, profileRes] = await Promise.all([
+        // Latest portfolio snapshot — maybeSingle so new users (no rows) return null, not an error
+        supabase
+          .from('portfolio_snapshots')
+          .select('total_value, daily_pnl, total_pnl_pct')
+          .eq('user_id', user.id)
+          .order('snapped_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+
+        // All wallets for this user — fetch all, pick default currency wallet or first
+        supabase
+          .from('wallets')
+          .select('balance, currency')
+          .eq('user_id', user.id)
+          .order('balance', { ascending: false }),
+
+        supabase
+          .from('users')
+          .select('first_name, last_name, plan, currency')
+          .eq('id', user.id)
+          .single(),
+      ]);
+
+      // Portfolio: default to zeroes if no snapshot yet
+      setPortfolio(snapRes.data ?? { total_value: 0, daily_pnl: 0, total_pnl_pct: 0 });
+
+      // Wallet: prefer the wallet whose currency matches the user's preferred currency,
+      // otherwise the highest-balance wallet, otherwise default to 0 / USD
+      if (profileRes.data?.currency && walletRes.data?.length) {
+        const preferred = walletRes.data.find(w => w.currency === profileRes.data.currency);
+        setWallet(preferred ?? walletRes.data[0]);
+      } else if (walletRes.data?.length) {
+        setWallet(walletRes.data[0]);
+      } else {
+        setWallet({ balance: 0, currency: profileRes.data?.currency ?? 'USD' });
+      }
+
+      if (profileRes.data) setProfile(profileRes.data);
+    }
+    fetchSidebarData();
+  }, []);
+
+  // Formatting helpers
+  function fmtCurrency(amount, currency = 'USD') {
+    // Guard: Intl only accepts valid ISO 4217 codes; crypto tickers like BTC/ETH aren't supported
+    const safeCodes = ['USD','EUR','GBP','NGN','JPY','AUD','CAD','CHF','INR','ZAR'];
+    const code = safeCodes.includes(currency) ? currency : 'USD';
+    return new Intl.NumberFormat('en-US', { style:'currency', currency: code, maximumFractionDigits:2 }).format(amount);
+  }
+
+  const currency  = wallet?.currency ?? 'USD';
+  const totalVal  = portfolio ? fmtCurrency(portfolio.total_value, currency) : '—';
+  const dailyPnl  = Number(portfolio?.daily_pnl ?? 0);
+  const dailyPct  = Number(portfolio?.total_pnl_pct ?? 0);
+  const pnlLabel  = portfolio
+    ? `${dailyPnl >= 0 ? '↑' : '↓'} ${dailyPnl >= 0 ? '+' : ''}${fmtCurrency(dailyPnl, currency)} today (${dailyPct >= 0 ? '+' : ''}${dailyPct.toFixed(2)}%)`
+    : '—';
+  const pnlColor  = dailyPnl >= 0 ? T.gn : T.rd;
+
+  const initials  = profile ? `${profile.first_name[0]}${profile.last_name[0]}` : '—';
+  const fullName  = profile ? `${profile.first_name} ${profile.last_name}` : '—';
+  const planLabel = profile ? (profile.plan.charAt(0).toUpperCase() + profile.plan.slice(1) + ' Member') : '—';
+
   return (
     <aside className={`in-sidebar${open ? ' open' : ''}`}>
       <div className="in-brand">
@@ -394,8 +505,8 @@ function Sidebar({ open }) {
       </div>
       <div className="in-sb-pill">
         <div className="in-sb-pill-label"><span className="in-live-dot" />Portfolio Value</div>
-        <div className="in-sb-pill-val">$12,480</div>
-        <div className="in-sb-pill-sub">↑ +$142 today (+1.15%)</div>
+        <div className="in-sb-pill-val">{totalVal}</div>
+        <div className="in-sb-pill-sub" style={{ color: pnlColor }}>{pnlLabel}</div>
       </div>
       <div className="in-sb-scroll">
         {NAV.map((n, i) => n.section
@@ -409,10 +520,10 @@ function Sidebar({ open }) {
         )}
       </div>
       <div className="in-sb-user">
-        <div className="in-sb-avatar">AR</div>
+        <div className="in-sb-avatar">{initials}</div>
         <div>
-          <div className="in-sb-user-name">Alex Rivera</div>
-          <div className="in-sb-user-role">Pro Member</div>
+          <div className="in-sb-user-name">{fullName}</div>
+          <div className="in-sb-user-role">{planLabel}</div>
         </div>
       </div>
     </aside>
@@ -474,8 +585,83 @@ function FaqSection() {
 }
 
 function TicketsSection() {
-  const [tab, setTab] = useState('tickets');
+  const [tab, setTab]           = useState('tickets');
   const [submitted, setSubmitted] = useState(false);
+  const [tickets, setTickets]   = useState([]);
+  const [loading, setLoading]   = useState(true);
+  const [error, setError]       = useState(null);
+
+  // Form state
+  const [subject,     setSubject]     = useState('');
+  const [category,    setCategory]    = useState('Account & Profile');
+  const [priority,    setPriority]    = useState('medium');
+  const [description, setDescription] = useState('');
+  const [submitting,  setSubmitting]  = useState(false);
+
+  // Fetch tickets on mount
+  React.useEffect(() => {
+    async function fetchTickets() {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data, error: err } = await supabase
+          .from('support_tickets')
+          .select('id, ticket_ref, subject, category, priority, status, created_at, updated_at')
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        if (err) throw err;
+        setTickets(data || []);
+      } catch (e) {
+        setError(e.message || 'Failed to load tickets.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchTickets();
+  }, []);
+
+  // Submit new ticket
+  async function handleSubmit() {
+    if (!subject.trim() || !description.trim()) return;
+    setSubmitting(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      const ticketRef = `#TF-${Math.floor(1000 + Math.random() * 9000)}`;
+      const { data: newTicket, error: err } = await supabase
+        .from('support_tickets')
+        .insert({
+          user_id:    user?.id,
+          ticket_ref: ticketRef,
+          subject:    subject.trim(),
+          category,
+          priority,
+          status:     'open',
+        })
+        .select()
+        .single();
+
+      if (err) throw err;
+
+      // Also insert the description as the first ticket message
+      if (newTicket) {
+        await supabase.from('ticket_messages').insert({
+          ticket_id: newTicket.id,
+          sender_id: user?.id,
+          is_agent:  false,
+          body:      description.trim(),
+        });
+        setTickets(prev => [newTicket, ...prev]);
+      }
+
+      setSubmitted(true);
+      setSubject(''); setCategory('Account & Profile'); setPriority('medium'); setDescription('');
+    } catch (e) {
+      alert('Failed to submit ticket: ' + (e.message || 'Unknown error'));
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="sp-card">
@@ -499,60 +685,92 @@ function TicketsSection() {
 
       <div className="sp-card-body">
         {tab === 'tickets' && (
-          TICKETS.map((t, i) => (
-            <div key={i} className="sp-ticket">
-              <div className="sp-ticket-icon" style={{ background:t.iconBg, color:t.iconCol }}>
-                <i className={`ti ${t.icon}`} />
-              </div>
-              <div style={{ flex:1, minWidth:0 }}>
-                <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
-                  <div className="sp-ticket-title">{t.title}</div>
-                  <span className={`in-badge ${t.statusCol}`}>{t.status}</span>
-                </div>
-                <div className="sp-ticket-meta">
-                  <span className="sp-ticket-id">{t.id}</span>
-                  <span>·</span>
-                  <span>{t.time}</span>
-                </div>
-                <div style={{ fontSize:11, color:T.nt, marginTop:5, lineHeight:1.5 }}>{t.preview}</div>
-              </div>
-              <i className="ti ti-chevron-right" style={{ fontSize:16, color:T.nt, flexShrink:0, marginTop:2 }} />
+          loading ? (
+            <div style={{ padding:'32px 20px', textAlign:'center', color:T.nt, fontSize:13 }}>
+              <i className="ti ti-loader-2" style={{ fontSize:22, display:'block', marginBottom:8, animation:'spin 1s linear infinite' }} />
+              Loading tickets…
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
-          ))
+          ) : error ? (
+            <div style={{ padding:'24px 20px', textAlign:'center', color:T.rd, fontSize:13 }}>
+              <i className="ti ti-alert-circle" style={{ fontSize:20, display:'block', marginBottom:6 }} />
+              {error}
+            </div>
+          ) : tickets.length === 0 ? (
+            <div style={{ padding:'32px 20px', textAlign:'center', color:T.nt, fontSize:13 }}>
+              <i className="ti ti-inbox" style={{ fontSize:28, display:'block', marginBottom:8 }} />
+              No tickets yet. Need help? Open a new ticket.
+            </div>
+          ) : (
+            tickets.map((t) => {
+              const { icon, iconBg, iconCol } = getTicketIcon(t.category);
+              return (
+                <div key={t.id} className="sp-ticket">
+                  <div className="sp-ticket-icon" style={{ background:iconBg, color:iconCol }}>
+                    <i className={`ti ${icon}`} />
+                  </div>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:4 }}>
+                      <div className="sp-ticket-title">{t.subject}</div>
+                      <span className={`in-badge ${getStatusBadge(t.status)}`}>{formatStatusLabel(t.status)}</span>
+                    </div>
+                    <div className="sp-ticket-meta">
+                      <span className="sp-ticket-id">{t.ticket_ref}</span>
+                      <span>·</span>
+                      <span>{timeAgo(t.created_at)}</span>
+                      <span>·</span>
+                      <span style={{ textTransform:'capitalize' }}>{t.category}</span>
+                    </div>
+                  </div>
+                  <i className="ti ti-chevron-right" style={{ fontSize:16, color:T.nt, flexShrink:0, marginTop:2 }} />
+                </div>
+              );
+            })
+          )
         )}
 
         {tab === 'new' && !submitted && (
           <div style={{ padding:20, display:'flex', flexDirection:'column', gap:16 }}>
             <div className="sp-field">
               <div className="sp-field-label">Subject</div>
-              <input className="sp-input" placeholder="Brief description of your issue" />
+              <input
+                className="sp-input"
+                placeholder="Brief description of your issue"
+                value={subject}
+                onChange={e => setSubject(e.target.value)}
+              />
             </div>
             <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
               <div className="sp-field">
                 <div className="sp-field-label">Category</div>
-                <select className="sp-select">
-                  <option>Account & Profile</option>
-                  <option>Billing & Subscription</option>
-                  <option>Trading & Positions</option>
-                  <option>Alerts & Watchlist</option>
-                  <option>Copy Trading</option>
-                  <option>Integrations & API</option>
-                  <option>Other</option>
+                <select className="sp-select" value={category} onChange={e => setCategory(e.target.value)}>
+                  <option value="Account & Profile">Account &amp; Profile</option>
+                  <option value="Billing & Subscription">Billing &amp; Subscription</option>
+                  <option value="Trading & Positions">Trading &amp; Positions</option>
+                  <option value="Alerts & Watchlist">Alerts &amp; Watchlist</option>
+                  <option value="Copy Trading">Copy Trading</option>
+                  <option value="Integrations & API">Integrations &amp; API</option>
+                  <option value="Other">Other</option>
                 </select>
               </div>
               <div className="sp-field">
                 <div className="sp-field-label">Priority</div>
-                <select className="sp-select">
-                  <option>Low — general question</option>
-                  <option>Medium — something not working</option>
-                  <option>High — blocking my trading</option>
-                  <option>Critical — account / funds issue</option>
+                <select className="sp-select" value={priority} onChange={e => setPriority(e.target.value)}>
+                  <option value="low">Low — general question</option>
+                  <option value="medium">Medium — something not working</option>
+                  <option value="high">High — blocking my trading</option>
+                  <option value="critical">Critical — account / funds issue</option>
                 </select>
               </div>
             </div>
             <div className="sp-field">
               <div className="sp-field-label">Description</div>
-              <textarea className="sp-input sp-textarea" placeholder="Please describe the issue in detail — what you expected to happen and what actually happened." />
+              <textarea
+                className="sp-input sp-textarea"
+                placeholder="Please describe the issue in detail — what you expected to happen and what actually happened."
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+              />
             </div>
             <div className="sp-field">
               <div className="sp-field-label">Attachments <span style={{ color:T.nt, fontWeight:400, textTransform:'none', letterSpacing:0 }}>(optional)</span></div>
@@ -566,8 +784,15 @@ function TicketsSection() {
             </div>
             <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
               <button className="in-btn in-btn-ghost in-btn-sm" onClick={() => setTab('tickets')}>Cancel</button>
-              <button className="in-btn in-btn-accent in-btn-sm" onClick={() => setSubmitted(true)}>
-                <i className="ti ti-send" /> Submit Ticket
+              <button
+                className="in-btn in-btn-accent in-btn-sm"
+                onClick={handleSubmit}
+                disabled={submitting || !subject.trim() || !description.trim()}
+                style={{ opacity: (!subject.trim() || !description.trim()) ? 0.5 : 1 }}
+              >
+                {submitting
+                  ? <><i className="ti ti-loader-2" style={{ animation:'spin 1s linear infinite' }} /> Submitting…</>
+                  : <><i className="ti ti-send" /> Submit Ticket</>}
               </button>
             </div>
           </div>

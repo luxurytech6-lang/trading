@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import supabase from "../../supabase";
 
 /* ─────────────────────────────────────────────
    DESIGN TOKENS  (match TradeFlow landing)
@@ -408,12 +409,29 @@ const StepCredentials = ({ onNext }) => {
     return e;
   };
 
-  const submit = () => {
+  const submit = async () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
     setErrors({});
     setLoading(true);
-    setTimeout(() => { setLoading(false); onNext({ email, remember }); }, 1200);
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      setLoading(false);
+      onNext({ email });
+    } catch (err) {
+      setLoading(false);
+      // Map Supabase error messages to friendly ones
+      const msg = err.message?.toLowerCase() ?? "";
+      if (msg.includes("invalid login")) {
+        setErrors({ password: "Incorrect email or password." });
+      } else if (msg.includes("email not confirmed")) {
+        setErrors({ email: "Please verify your email before signing in." });
+      } else {
+        setErrors({ password: err.message || "Sign-in failed. Please try again." });
+      }
+    }
   };
 
   return (
@@ -476,86 +494,7 @@ const StepCredentials = ({ onNext }) => {
 };
 
 /* ─────────────────────────────────────────────
-   STEP 2 — 2FA
-───────────────────────────────────────────── */
-const Step2FA = ({ email, onNext, onBack }) => {
-  const [otp, setOtp]         = useState("");
-  const [loading, setLoading] = useState(false);
-  const [hasError, setHasError] = useState(false);
-  const [resent, setResent]   = useState(false);
-
-  const verify = () => {
-    if (otp.length < 6) { setHasError(true); setTimeout(()=>setHasError(false),500); return; }
-    setLoading(true);
-    setTimeout(() => {
-      setLoading(false);
-      // Simulate wrong code for demo if "000000"
-      if (otp === "000000") { setHasError(true); setTimeout(()=>setHasError(false),500); }
-      else onNext();
-    }, 1000);
-  };
-
-  const resend = () => {
-    setResent(true);
-    setTimeout(() => setResent(false), 4000);
-  };
-
-  return (
-    <div>
-      {/* Info box */}
-      <div style={{
-        background: C.accentDim, border:`1px solid ${C.accent}30`,
-        borderRadius:"10px", padding:"14px 16px", marginBottom:"24px",
-        display:"flex", gap:"12px", alignItems:"flex-start",
-      }}>
-        <span style={{fontSize:"18px", flexShrink:0, marginTop:"1px"}}>📲</span>
-        <div>
-          <div style={{fontSize:"13px", fontWeight:"600", color:C.text, marginBottom:"3px"}}>Check your authenticator app</div>
-          <div style={{fontSize:"12px", color:C.textMid, lineHeight:"1.6"}}>
-            Enter the 6-digit code for <strong style={{color:C.text}}>{email}</strong>
-          </div>
-        </div>
-      </div>
-
-      <div style={{marginBottom:"8px"}}>
-        <label style={{fontSize:"13px", fontWeight:"600", color:C.textMid, display:"block", marginBottom:"10px", letterSpacing:".01em"}}>
-          Authentication Code
-        </label>
-        <OTPInput value={otp} onChange={setOtp} hasError={hasError}/>
-        {hasError && <div className="field-error" style={{marginTop:"8px"}}>⚠ Invalid code — try again</div>}
-      </div>
-
-      <div style={{ fontSize:"12px", color:C.textDim, textAlign:"center", margin:"16px 0 24px" }}>
-        Didn't receive it?{" "}
-        <button onClick={resend} style={{
-          background:"none", border:"none", color: resent ? C.accent : C.textMid,
-          cursor:"pointer", fontSize:"12px", fontFamily:"'DM Sans',sans-serif",
-          transition:"color .15s",
-        }}>
-          {resent ? "✓ Code resent!" : "Resend code"}
-        </button>
-      </div>
-
-      <button className="btn-primary" onClick={verify} disabled={loading || otp.length < 6}>
-        {loading ? <><div className="spinner"/> Verifying…</> : <>Verify & Sign In <span style={{fontSize:"16px"}}>→</span></>}
-      </button>
-
-      <button onClick={onBack} style={{
-        width:"100%", marginTop:"12px", padding:"11px",
-        background:"transparent", border:`1px solid ${C.border}`,
-        borderRadius:"10px", color:C.textMid, fontSize:"13px",
-        fontWeight:"600", fontFamily:"'DM Sans',sans-serif",
-        cursor:"pointer", transition:"border-color .2s, color .2s",
-      }}
-        onMouseEnter={e=>{e.currentTarget.style.borderColor=C.borderHover;e.currentTarget.style.color=C.text;}}
-        onMouseLeave={e=>{e.currentTarget.style.borderColor=C.border;e.currentTarget.style.color=C.textMid;}}
-      >← Back</button>
-    </div>
-  );
-};
-
-/* ─────────────────────────────────────────────
-   STEP 3 — Success
+   STEP 2 — Success
 ───────────────────────────────────────────── */
 const StepSuccess = () => {
   useEffect(() => {
@@ -656,13 +595,11 @@ const Login = () => {
   const [step, setStep]     = useState(1); // 1 | 2 | 3
   const [data, setData]     = useState({});
 
-  const totalSteps = 2;
+  const totalSteps = 1;
 
-  const goNext2FA = (info) => { setData(info); setStep(2); };
-  const goSuccess = ()      => { setStep(3); };
-  const goBack    = ()      => { setStep(1); };
+  const goSuccess = (info) => { setData(info); setStep(2); };
 
-  const stepLabel = { 1:"Sign in", 2:"Two-factor auth", 3:"Signed in" };
+  const stepLabel = { 1:"Sign in", 2:"Signed in" };
 
   return (
     <>
@@ -710,25 +647,11 @@ const Login = () => {
             {/* Header */}
             <div className="auth-header-enter" style={{marginBottom:"32px"}}>
               {/* Step dots */}
-              {step < 3 && (
-                <div style={{marginBottom:"20px"}}>
-                  <div className="step-dots">
-                    {Array.from({length:totalSteps},(_,i)=>(
-                      <div key={i} className={`step-dot ${i+1===step?"active":i+1<step?"done":""}`}/>
-                    ))}
-                  </div>
-                  <div style={{textAlign:"center", fontSize:"11px", color:C.textDim, marginTop:"8px", fontFamily:"'DM Mono',monospace", letterSpacing:".06em", textTransform:"uppercase"}}>
-                    Step {step} of {totalSteps} — {stepLabel[step]}
-                  </div>
-                </div>
-              )}
-
               <h1 style={{fontFamily:"'Syne',sans-serif", fontSize:"clamp(24px,3vw,30px)", fontWeight:"800", letterSpacing:"-1px", color:C.text, marginBottom:"6px", textAlign:"center"}}>
-                {step===1 ? "Welcome back" : step===2 ? "One more step" : "You're in!"}
+                {step===1 ? "Welcome back" : "You're in!"}
               </h1>
               <p style={{fontSize:"14px", color:C.textMid, textAlign:"center", lineHeight:"1.6"}}>
-                {step===1 ? "Sign in to your TradeFlow account" :
-                 step===2 ? "Verify your identity to continue" : ""}
+                {step===1 ? "Sign in to your TradeFlow account" : ""}
               </p>
             </div>
 
@@ -740,13 +663,12 @@ const Login = () => {
               padding:"clamp(20px,4vw,32px)",
               boxShadow:`0 32px 64px rgba(0,0,0,.45), 0 0 0 1px ${C.border}`,
             }}>
-              {step===1 && <StepCredentials onNext={goNext2FA}/>}
-              {step===2 && <Step2FA email={data.email} onNext={goSuccess} onBack={goBack}/>}
-              {step===3 && <StepSuccess/>}
+              {step===1 && <StepCredentials onNext={goSuccess}/>}
+              {step===2 && <StepSuccess/>}
             </div>
 
             {/* Footer */}
-            {step < 3 && (
+            {step === 1 && (
               <div style={{textAlign:"center", marginTop:"24px", fontSize:"13px", color:C.textDim}}>
                 Don't have an account?{" "}
                 <a href="/signup" style={{color:C.accent, fontWeight:"600"}}>Sign up free →</a>

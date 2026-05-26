@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import supabase from "../supabase";
 
 /* ─── Design tokens ──────────────────────────────────────────────────────── */
 const T = {
@@ -10,6 +11,32 @@ const T = {
   mono:"'JetBrains Mono', monospace",
 };
 
+/* ─── Static visual data ─────────────────────────────────────────────────── */
+const RISK_COLOR = { Low: '#34d399', Medium: '#f59e0b', High: '#f87171' };
+const RISK_BG    = { Low: 'rgba(52,211,153,.12)', Medium: 'rgba(245,158,11,.12)', High: 'rgba(248,113,113,.12)' };
+
+/* Plans that can use copy trading — anything above 'basic' */
+const COPY_ALLOWED_PLANS = ['pro', 'elite', 'premium', 'enterprise', 'vip'];
+const canUseCopyTrading = (plan) => COPY_ALLOWED_PLANS.includes((plan || '').toLowerCase());
+
+const MAIN_LINKS = [
+  { href:'/dashboard', icon:'ti-layout-dashboard', label:'Dashboard' },
+  { href:'/copy-trading', icon:'ti-copy',             label:'Copy Trading', active:true },
+  { href:'/hire-trader', icon:'ti-users',            label:'Hire a Trader' },
+  { href:'/insights', icon:'ti-chart-line',       label:'Insights' },
+  { href:'/market-place', icon:'ti-robot',            label:'Marketplace', badge:'NEW' },
+  { href:'/terminal', icon:'ti-chart-candle',     label:'Terminal' },
+];
+const ACCT_LINKS = [
+  { href:'/payment', icon:'ti-credit-card',      label:'Payments' },
+  { href:'/profile', icon:'ti-user-circle',      label:'Profile' },
+  { href:'/settings', icon:'ti-settings',         label:'Settings' },
+  { href:'/support', icon:'ti-headset',          label:'Support' },
+];
+
+/* ─── No client-side seed data — all data comes from Supabase (seeded via SQL) ── */
+
+/* ─── Global CSS ─────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
   @import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/tabler-icons.min.css');
@@ -37,7 +64,6 @@ const GLOBAL_CSS = `
     --purple:     #a78bfa;
     --sidebar-w:  256px;
     --topbar-h:   60px;
-    --ticker-h:   32px;
     --sans:  'Space Grotesk', sans-serif;
     --serif: 'Instrument Serif', serif;
     --mono:  'JetBrains Mono', monospace;
@@ -60,6 +86,47 @@ const GLOBAL_CSS = `
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
 
+  /* ── Login Screen ── */
+  .ct-login-wrap {
+    display: flex; align-items: center; justify-content: center;
+    height: 100vh; background: var(--bg);
+  }
+  .ct-login-card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 20px; padding: 36px; width: 100%; max-width: 380px;
+  }
+  .ct-login-brand {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 28px;
+  }
+  .ct-login-brand-icon {
+    width: 36px; height: 36px; background: var(--accent); border-radius: 9px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .ct-login-brand-icon i { font-size: 18px; color: #000; }
+  .ct-login-title { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+  .ct-login-sub { font-size: 12px; color: var(--muted); margin-bottom: 24px; }
+  .ct-login-field { margin-bottom: 14px; }
+  .ct-login-label { display: block; font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+  .ct-login-input {
+    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    border-radius: var(--r-sm); padding: 11px 13px; font-size: 13px; color: var(--text);
+    font-family: var(--sans); outline: none; transition: border-color .15s;
+  }
+  .ct-login-input:focus { border-color: var(--accent); }
+  .ct-login-err {
+    background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.3);
+    border-radius: var(--r-sm); padding: 10px 13px; font-size: 12px; color: var(--red);
+    margin-bottom: 14px;
+  }
+  .ct-login-btn {
+    width: 100%; background: var(--accent); color: #000;
+    border-radius: var(--r-sm); padding: 12px 0; font-size: 14px; font-weight: 700;
+    font-family: var(--sans); cursor: pointer; border: none; margin-top: 6px;
+    transition: opacity .15s;
+  }
+  .ct-login-btn:hover { opacity: .88; }
+  .ct-login-btn:disabled { opacity: .5; cursor: not-allowed; }
+
   /* ── Shell ── */
   .ct-shell {
     display: grid;
@@ -71,59 +138,36 @@ const GLOBAL_CSS = `
 
   /* ── Sidebar ── */
   .ct-sidebar {
-    grid-column: 1 !important;
-    grid-row: 1 !important;
-    background: var(--surface) !important;
-    border-right: 1px solid var(--border) !important;
-    display: flex !important;
-    flex-direction: column !important;
-    width: var(--sidebar-w) !important;
-    min-width: var(--sidebar-w) !important;
-    height: 100vh !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    position: relative !important;
-    top: auto !important; left: auto !important;
-    transform: none !important;
-    z-index: 100 !important;
+    grid-column: 1 !important; grid-row: 1 !important;
+    background: var(--surface) !important; border-right: 1px solid var(--border) !important;
+    display: flex !important; flex-direction: column !important;
+    width: var(--sidebar-w) !important; min-width: var(--sidebar-w) !important;
+    height: 100vh !important; overflow-y: auto !important; overflow-x: hidden !important;
+    position: relative !important; top: auto !important; left: auto !important;
+    transform: none !important; z-index: 100 !important;
     transition: transform .25s cubic-bezier(.4,0,.2,1) !important;
     flex-shrink: 0 !important;
   }
   .ct-sidebar::after {
-    content: '';
-    position: absolute;
-    top: 0; right: 0;
+    content: ''; position: absolute; top: 0; right: 0;
     width: 1px; height: 100%;
     background: linear-gradient(180deg, transparent 0%, var(--accent) 30%, var(--border) 60%, transparent 100%);
-    opacity: .15;
-    pointer-events: none;
+    opacity: .15; pointer-events: none;
   }
-
-  /* Brand */
   .ct-brand {
     display: flex; align-items: center; gap: 10px;
-    padding: 20px 20px 16px;
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
+    padding: 20px 20px 16px; border-bottom: 1px solid var(--border); flex-shrink: 0;
   }
   .ct-brand-icon {
-    width: 34px; height: 34px;
-    background: var(--accent); border-radius: 9px;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0;
+    width: 34px; height: 34px; background: var(--accent); border-radius: 9px;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
   }
   .ct-brand-icon i { font-size: 18px; color: #000; }
   .ct-brand-name { font-size: 16px; font-weight: 700; letter-spacing: -.3px; color: var(--text); }
   .ct-brand-name em { color: var(--accent); font-style: normal; }
-
-  /* Portfolio pill */
   .ct-sb-pill {
-    margin: 12px 16px;
-    background: var(--accent-dim);
-    border: 1px solid rgba(200,245,96,.18);
-    border-radius: var(--r-md);
-    padding: 10px 14px;
-    flex-shrink: 0;
+    margin: 12px 16px; background: var(--accent-dim);
+    border: 1px solid rgba(200,245,96,.18); border-radius: var(--r-md); padding: 10px 14px; flex-shrink: 0;
   }
   .ct-sb-pill-label {
     font-size: 10px; font-weight: 600; color: var(--muted);
@@ -137,32 +181,24 @@ const GLOBAL_CSS = `
   @keyframes ct-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
   .ct-sb-pill-val { font-family: var(--mono); font-size: 19px; font-weight: 600; color: var(--accent); letter-spacing: -.5px; }
   .ct-sb-pill-sub { font-size: 11px; color: var(--green); margin-top: 3px; }
-
-  /* Nav links */
   .ct-sb-scroll { flex: 1; overflow-y: auto; padding: 8px 0; }
   .ct-sb-section {
-    padding: 10px 20px 4px;
-    font-size: 9px; font-weight: 700;
+    padding: 10px 20px 4px; font-size: 9px; font-weight: 700;
     text-transform: uppercase; letter-spacing: 1.5px; color: var(--faint);
   }
   .ct-sb-link {
     display: flex; align-items: center; gap: 11px;
     padding: 9px 20px; font-size: 13px; font-weight: 500;
     color: var(--muted); border-left: 2px solid transparent;
-    transition: all .15s; cursor: pointer; position: relative;
-    text-decoration: none;
+    transition: all .15s; cursor: pointer; position: relative; text-decoration: none;
   }
   .ct-sb-link i { font-size: 18px; flex-shrink: 0; }
   .ct-sb-link:hover { color: var(--text); background: var(--accent-glow); border-left-color: var(--border2); }
   .ct-sb-link.active { color: var(--accent); background: var(--accent-dim); border-left-color: var(--accent); }
-  .ct-sb-link.active i { filter: drop-shadow(0 0 6px var(--accent)); }
   .ct-sb-badge {
     margin-left: auto; font-size: 9px; font-weight: 700;
-    background: var(--accent); color: #000;
-    padding: 2px 6px; border-radius: 5px; letter-spacing: .3px;
+    background: var(--accent); color: #000; padding: 2px 6px; border-radius: 5px; letter-spacing: .3px;
   }
-
-  /* User block */
   .ct-sb-user {
     flex-shrink: 0; border-top: 1px solid var(--border);
     padding: 14px 16px; display: flex; align-items: center; gap: 10px;
@@ -176,13 +212,15 @@ const GLOBAL_CSS = `
   }
   .ct-sb-user-name { font-size: 13px; font-weight: 700; color: var(--text); }
   .ct-sb-user-role { font-size: 10px; color: var(--accent); margin-top: 1px; }
+  .ct-sb-logout {
+    margin-left: auto; font-size: 11px; color: var(--muted); cursor: pointer;
+    padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border);
+    transition: all .15s;
+  }
+  .ct-sb-logout:hover { color: var(--red); border-color: rgba(248,113,113,.4); }
 
   /* ── Right panel ── */
-  .ct-right {
-    grid-column: 2;
-    display: flex; flex-direction: column;
-    height: 100vh; overflow: hidden;
-  }
+  .ct-right { grid-column: 2; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
   /* ── Topbar ── */
   .ct-topbar {
@@ -212,24 +250,15 @@ const GLOBAL_CSS = `
     display: flex; align-items: center; justify-content: center;
     cursor: pointer; box-shadow: 0 0 10px rgba(200,245,96,.25);
   }
-  .ct-hamburger {
-    display: none; flex-direction: column; gap: 5px; cursor: pointer; padding: 4px;
-  }
+  .ct-hamburger { display: none; flex-direction: column; gap: 5px; cursor: pointer; padding: 4px; }
   .ct-hamburger span { display: block; width: 20px; height: 2px; background: var(--text); border-radius: 2px; }
 
   /* ── Main ── */
-  .ct-main {
-    flex: 1; overflow-y: auto; overflow-x: hidden;
-    padding: 24px 28px 40px;
-  }
-
-  /* Page header */
+  .ct-main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 24px 28px 40px; }
   .ct-page-header {
     display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px;
   }
-  .ct-page-title {
-    font-family: var(--serif); font-size: 28px; color: var(--text); line-height: 1.2;
-  }
+  .ct-page-title { font-family: var(--serif); font-size: 28px; color: var(--text); line-height: 1.2; }
   .ct-page-title em { color: var(--accent); font-style: italic; }
   .ct-page-sub {
     font-size: 13px; color: var(--muted); margin-top: 4px;
@@ -240,10 +269,8 @@ const GLOBAL_CSS = `
   /* Buttons */
   .ct-btn {
     display: inline-flex; align-items: center; justify-content: center;
-    gap: 7px; border-radius: var(--r-sm);
-    font-family: var(--sans); font-weight: 600;
-    cursor: pointer; transition: all .15s;
-    border: none; text-decoration: none; white-space: nowrap;
+    gap: 7px; border-radius: var(--r-sm); font-family: var(--sans); font-weight: 600;
+    cursor: pointer; transition: all .15s; border: none; text-decoration: none; white-space: nowrap;
   }
   .ct-btn-sm  { font-size: 12px; padding: 7px 14px; }
   .ct-btn-accent { background: var(--accent); color: #000; }
@@ -255,69 +282,44 @@ const GLOBAL_CSS = `
   .ct-btn-ghost:hover { border-color: var(--border2); }
 
   /* ── Metrics ── */
-  .ct-metrics {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;
-  }
+  .ct-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px; }
   .ct-metric {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--r-lg); padding: 18px 20px;
-    position: relative; overflow: hidden;
+    border-radius: var(--r-lg); padding: 18px 20px; position: relative; overflow: hidden;
     transition: border-color .2s, transform .2s;
   }
   .ct-metric:hover { border-color: var(--border2); transform: translateY(-1px); }
   .ct-metric::before {
-    content: '';
-    position: absolute; top: 0; left: 0; right: 0; height: 1px;
+    content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
     background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%);
     opacity: .3;
   }
   .ct-metric-icon {
     width: 32px; height: 32px; border-radius: 8px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 16px; margin-bottom: 12px;
+    display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 12px;
   }
-  .ct-metric-label {
-    font-size: 10px; font-weight: 700; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px;
-  }
-  .ct-metric-value {
-    font-family: var(--mono); font-size: 20px; font-weight: 600;
-    color: var(--text); line-height: 1; margin-bottom: 6px; letter-spacing: -.5px;
-  }
+  .ct-metric-label { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .ct-metric-value { font-family: var(--mono); font-size: 20px; font-weight: 600; color: var(--text); line-height: 1; margin-bottom: 6px; letter-spacing: -.5px; }
   .ct-metric-sub { font-size: 11px; color: var(--muted); }
 
   /* ── Controls bar ── */
-  .ct-controls {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 12px; flex-wrap: wrap; margin-bottom: 16px;
-  }
-
-  /* Tabs */
-  .ct-tabs {
-    display: flex; gap: 4px; background: var(--surface2);
-    border: 1px solid var(--border); border-radius: var(--r-md); padding: 4px;
-  }
+  .ct-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  .ct-tabs { display: flex; gap: 4px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-md); padding: 4px; }
   .ct-tab {
     display: flex; align-items: center; gap: 6px;
     padding: 7px 14px; border-radius: var(--r-sm); border: none; cursor: pointer;
     font-family: var(--sans); font-weight: 700; font-size: 12px;
-    background: transparent; color: var(--muted);
-    transition: all .15s; white-space: nowrap;
+    background: transparent; color: var(--muted); transition: all .15s; white-space: nowrap;
   }
   .ct-tab:hover { color: var(--text); }
   .ct-tab.active { background: var(--accent); color: #000; }
   .ct-tab i { font-size: 14px; }
-  .ct-tab-count {
-    font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 99px;
-  }
-
-  /* Filters */
+  .ct-tab-count { font-size: 9px; font-weight: 800; padding: 1px 5px; border-radius: 99px; }
   .ct-filters { display: flex; gap: 8px; flex-wrap: wrap; }
   .ct-select {
     background: var(--surface2); border: 1px solid var(--border);
     color: var(--text); border-radius: var(--r-sm); padding: 7px 10px;
-    font-size: 12px; font-family: var(--sans); cursor: pointer; outline: none;
-    transition: border-color .15s;
+    font-size: 12px; font-family: var(--sans); cursor: pointer; outline: none; transition: border-color .15s;
   }
   .ct-select:hover { border-color: var(--border2); }
 
@@ -335,27 +337,15 @@ const GLOBAL_CSS = `
   .ct-trader-card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
   .ct-trader-name { font-family: var(--serif); font-size: 15px; font-weight: 600; margin-bottom: 2px; }
   .ct-trader-handle { font-size: 11px; color: var(--muted); margin-bottom: 10px; }
-  .ct-trader-stats {
-    display: grid; grid-template-columns: 1fr 1fr 1fr;
-    border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px;
-  }
+  .ct-trader-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; border-top: 1px solid var(--border); padding-top: 12px; margin-top: 4px; }
   .ct-stat-val { font-family: var(--mono); font-size: 13px; font-weight: 700; text-align: center; }
   .ct-stat-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; text-align: center; }
   .ct-trader-footer { display: flex; gap: 6px; margin-top: 12px; flex-wrap: wrap; }
-  .ct-hover-cta {
-    position: absolute; bottom: 0; left: 0; right: 0;
-    display: flex; align-items: center; justify-content: center; padding: 12px 0;
-  }
-  .ct-cta-btn {
-    border-radius: 7px; padding: 6px 20px; font-size: 12px;
-    font-weight: 700; font-family: var(--sans); cursor: pointer; border: none;
-  }
+  .ct-hover-cta { position: absolute; bottom: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: center; padding: 12px 0; }
+  .ct-cta-btn { border-radius: 7px; padding: 6px 20px; font-size: 12px; font-weight: 700; font-family: var(--sans); cursor: pointer; border: none; }
 
   /* Badge */
-  .ct-badge {
-    font-size: 10px; font-weight: 700; font-family: var(--sans);
-    padding: 2px 8px; border-radius: 4px; white-space: nowrap; letter-spacing: .2px;
-  }
+  .ct-badge { font-size: 10px; font-weight: 700; font-family: var(--sans); padding: 2px 8px; border-radius: 4px; white-space: nowrap; letter-spacing: .2px; }
   .ct-badge-green { background: rgba(52,211,153,.13); color: #34d399; }
   .ct-badge-blue  { background: rgba(96,165,250,.13); color: #60a5fa; }
   .ct-badge-gold  { background: rgba(200,245,96,.13); color: #c8f560; }
@@ -363,35 +353,18 @@ const GLOBAL_CSS = `
   .ct-badge-muted { background: rgba(100,116,139,.13); color: #64748b; }
 
   /* Pill tag */
-  .ct-pill {
-    font-size: 10px; font-weight: 700; font-family: var(--sans);
-    padding: 2px 8px; border-radius: 4px; white-space: nowrap;
-  }
+  .ct-pill { font-size: 10px; font-weight: 700; font-family: var(--sans); padding: 2px 8px; border-radius: 4px; white-space: nowrap; }
 
   /* Avatar */
-  .ct-av {
-    border-radius: 50%; display: flex; align-items: center; justify-content: center;
-    font-family: var(--sans); font-weight: 700; color: #000; flex-shrink: 0;
-  }
+  .ct-av { border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: var(--sans); font-weight: 700; color: #000; flex-shrink: 0; }
 
   /* Copying Card */
-  .ct-copying-card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--r-lg); padding: 18px;
-  }
+  .ct-copying-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 18px; }
   .ct-copy-actions { display: flex; gap: 8px; margin-top: 14px; }
-  .ct-copy-btn {
-    flex: 1; border-radius: var(--r-sm); padding: 8px 0;
-    font-size: 12px; font-weight: 700; font-family: var(--sans); cursor: pointer;
-    transition: all .15s;
-  }
-  .ct-copy-btn-pause {
-    background: transparent; border: 1px solid var(--border); color: var(--text);
-  }
+  .ct-copy-btn { flex: 1; border-radius: var(--r-sm); padding: 8px 0; font-size: 12px; font-weight: 700; font-family: var(--sans); cursor: pointer; transition: all .15s; }
+  .ct-copy-btn-pause { background: transparent; border: 1px solid var(--border); color: var(--text); }
   .ct-copy-btn-pause:hover { border-color: var(--border2); }
-  .ct-copy-btn-stop {
-    background: transparent; border: 1px solid rgba(248,113,113,.35); color: var(--red);
-  }
+  .ct-copy-btn-stop { background: transparent; border: 1px solid rgba(248,113,113,.35); color: var(--red); }
   .ct-copy-btn-stop:hover { background: var(--red-dim); }
 
   /* Progress bar */
@@ -399,92 +372,104 @@ const GLOBAL_CSS = `
   .ct-progress-fill { height: 100%; border-radius: 99px; transition: width .4s ease; }
 
   /* Mini stat box */
-  .ct-mini-stat {
-    background: var(--surface2); border-radius: var(--r-sm); padding: 10px 12px;
-  }
+  .ct-mini-stat { background: var(--surface2); border-radius: var(--r-sm); padding: 10px 12px; }
   .ct-mini-stat-val { font-family: var(--mono); font-size: 13px; font-weight: 700; }
   .ct-mini-stat-lbl { font-size: 10px; color: var(--muted); margin-top: 2px; }
 
   /* Leaderboard */
-  .ct-lb-wrap {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--r-lg); overflow: hidden;
-  }
-  .ct-lb-head {
-    padding: 16px 20px; border-bottom: 1px solid var(--border);
-    display: flex; justify-content: space-between; align-items: center;
-  }
+  .ct-lb-wrap { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+  .ct-lb-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; }
   .ct-lb-title { font-family: var(--serif); font-size: 16px; }
   .ct-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  .ct-table th {
-    text-align: left; padding: 9px 16px;
-    color: var(--muted); font-size: 10px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .7px;
-    border-bottom: 1px solid var(--border); background: var(--surface2);
-  }
+  .ct-table th { text-align: left; padding: 9px 16px; color: var(--muted); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; border-bottom: 1px solid var(--border); background: var(--surface2); }
   .ct-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); }
   .ct-table tr:last-child td { border-bottom: none; }
   .ct-table tr:hover td { background: var(--surface2); }
-  .ct-table-copy-btn {
-    background: transparent; border: 1px solid var(--border);
-    color: var(--text); border-radius: 7px; padding: 6px 14px;
-    font-size: 11px; font-weight: 700; font-family: var(--sans); cursor: pointer;
-    transition: all .15s;
-  }
+  .ct-table-copy-btn { background: transparent; border: 1px solid var(--border); color: var(--text); border-radius: 7px; padding: 6px 14px; font-size: 11px; font-weight: 700; font-family: var(--sans); cursor: pointer; transition: all .15s; }
   .ct-table-copy-btn:hover { border-color: var(--accent); color: var(--accent); }
 
   /* Modal */
-  .ct-modal-overlay {
-    position: fixed; inset: 0; background: rgba(0,0,0,.75);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 600; padding: 16px;
-  }
-  .ct-modal {
-    background: var(--surface); border: 1px solid var(--border); border-radius: 18px;
-    width: 100%; max-width: 440px; max-height: 90vh; overflow-y: auto;
-    padding: 24px; position: relative;
-  }
-  .ct-modal-close {
-    position: absolute; top: 14px; right: 14px;
-    background: transparent; border: 1px solid var(--border);
-    color: var(--muted); border-radius: 8px;
-    width: 28px; height: 28px; cursor: pointer; font-size: 14px;
-    display: flex; align-items: center; justify-content: center;
-    transition: all .15s;
-  }
+  .ct-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: flex; align-items: center; justify-content: center; z-index: 600; padding: 16px; }
+  .ct-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; width: 100%; max-width: 440px; max-height: 90vh; overflow-y: auto; padding: 24px; position: relative; }
+  .ct-modal-close { position: absolute; top: 14px; right: 14px; background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; width: 28px; height: 28px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; transition: all .15s; }
   .ct-modal-close:hover { border-color: var(--red); color: var(--red); }
-  .ct-modal-stats {
-    display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
-    margin-bottom: 20px; background: var(--surface2); border-radius: 10px; padding: 14px;
-  }
+  .ct-modal-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 20px; background: var(--surface2); border-radius: 10px; padding: 14px; }
   .ct-modal-stat-val { font-family: var(--mono); font-size: 16px; font-weight: 700; text-align: center; }
   .ct-modal-stat-lbl { font-size: 10px; color: var(--muted); margin-top: 3px; text-align: center; }
   .ct-input-label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; font-weight: 600; }
-  .ct-input {
-    width: 100%; background: var(--surface2); border: 1px solid var(--border);
-    border-radius: var(--r-sm); padding: 10px 12px; font-size: 13px; color: var(--text);
-    font-family: var(--sans); outline: none; transition: border-color .15s;
-  }
+  .ct-input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 10px 12px; font-size: 13px; color: var(--text); font-family: var(--sans); outline: none; transition: border-color .15s; }
   .ct-input:focus { border-color: var(--accent); }
-  .ct-proj-return {
-    background: rgba(200,245,96,.07); border: 1px solid rgba(200,245,96,.2);
-    border-radius: 10px; padding: 12px 14px; margin-bottom: 16px;
-    display: flex; justify-content: space-between; align-items: center;
+  .ct-proj-return { background: rgba(200,245,96,.07); border: 1px solid rgba(200,245,96,.2); border-radius: 10px; padding: 12px 14px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; }
+  .ct-disclaimer { background: rgba(200,175,76,.06); border: 1px solid rgba(200,175,76,.18); border-radius: var(--r-sm); padding: 10px; margin-bottom: 16px; font-size: 11px; color: var(--muted); line-height: 1.5; }
+
+  /* Loading state */
+  .ct-loading { display: flex; align-items: center; justify-content: center; padding: 60px; flex-direction: column; gap: 12px; color: var(--muted); font-size: 13px; }
+  .ct-spinner { width: 28px; height: 28px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: ct-spin 0.7s linear infinite; }
+  @keyframes ct-spin { to { transform: rotate(360deg); } }
+
+  /* ── Upgrade gate ── */
+  .ct-upgrade-modal {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 20px;
+    width: 100%; max-width: 420px; padding: 32px; position: relative; text-align: center;
   }
-  .ct-disclaimer {
-    background: rgba(200,175,76,.06); border: 1px solid rgba(200,175,76,.18);
-    border-radius: var(--r-sm); padding: 10px; margin-bottom: 16px;
-    font-size: 11px; color: var(--muted); line-height: 1.5;
+  .ct-upgrade-icon {
+    width: 56px; height: 56px; border-radius: 16px; margin: 0 auto 18px;
+    background: linear-gradient(135deg, #f59e0b22 0%, #f59e0b44 100%);
+    border: 1px solid rgba(245,158,11,.3);
+    display: flex; align-items: center; justify-content: center; font-size: 26px;
   }
+  .ct-upgrade-title { font-family: var(--serif); font-size: 22px; margin-bottom: 8px; }
+  .ct-upgrade-sub { font-size: 13px; color: var(--muted); margin-bottom: 24px; line-height: 1.6; }
+  .ct-upgrade-plans { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 22px; }
+  .ct-plan-card {
+    border-radius: var(--r-md); padding: 16px 14px; text-align: left; position: relative;
+    border: 1px solid var(--border); background: var(--surface2); cursor: pointer;
+    transition: all .15s;
+  }
+  .ct-plan-card:hover { border-color: var(--border2); transform: translateY(-1px); }
+  .ct-plan-card.recommended {
+    border-color: rgba(200,245,96,.4); background: rgba(200,245,96,.05);
+  }
+  .ct-plan-rec-badge {
+    position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: #000; font-size: 9px; font-weight: 800;
+    padding: 2px 8px; border-radius: 99px; white-space: nowrap; letter-spacing: .5px;
+  }
+  .ct-plan-name { font-size: 13px; font-weight: 800; margin-bottom: 4px; color: var(--text); }
+  .ct-plan-price { font-family: var(--mono); font-size: 20px; font-weight: 700; color: var(--accent); }
+  .ct-plan-price span { font-size: 11px; color: var(--muted); font-family: var(--sans); font-weight: 400; }
+  .ct-plan-features { margin-top: 10px; display: flex; flex-direction: column; gap: 5px; }
+  .ct-plan-feat { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .ct-plan-feat i { color: var(--green); font-size: 12px; }
+  .ct-upgrade-cta {
+    width: 100%; background: var(--accent); color: #000;
+    border-radius: var(--r-sm); padding: 13px 0; font-size: 14px; font-weight: 700;
+    font-family: var(--sans); cursor: pointer; border: none; transition: opacity .15s;
+    margin-bottom: 10px;
+  }
+  .ct-upgrade-cta:hover { opacity: .88; box-shadow: 0 0 20px rgba(200,245,96,.3); }
+  .ct-upgrade-skip { font-size: 12px; color: var(--muted); cursor: pointer; background: none; border: none; }
+  .ct-upgrade-skip:hover { color: var(--text); }
+
+  /* Locked trader card overlay */
+  .ct-card-locked-overlay {
+    position: absolute; inset: 0; border-radius: var(--r-lg);
+    background: rgba(8,11,16,.72); backdrop-filter: blur(2px);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  }
+  .ct-lock-icon {
+    width: 36px; height: 36px; border-radius: 10px;
+    background: rgba(245,158,11,.15); border: 1px solid rgba(245,158,11,.3);
+    display: flex; align-items: center; justify-content: center; font-size: 16px; color: #f59e0b;
+  }
+  .ct-lock-label { font-size: 11px; font-weight: 700; color: var(--text); }
+  .ct-lock-sub { font-size: 10px; color: var(--muted); }
 
   /* ── Responsive ── */
   @media (max-width: 1100px) { .ct-metrics { grid-template-columns: repeat(2, 1fr); } }
   @media (max-width: 768px) {
     .ct-shell { grid-template-columns: 1fr !important; }
-    .ct-sidebar {
-      position: fixed !important; top: 0 !important; left: 0 !important;
-      transform: translateX(-100%) !important; z-index: 300 !important;
-    }
+    .ct-sidebar { position: fixed !important; top: 0 !important; left: 0 !important; transform: translateX(-100%) !important; z-index: 300 !important; }
     .ct-sidebar.open { transform: translateX(0) !important; box-shadow: 4px 0 32px rgba(0,0,0,.6) !important; }
     .ct-right { grid-column: 1; }
     .ct-hamburger { display: flex; }
@@ -498,49 +483,9 @@ const GLOBAL_CSS = `
   }
 `;
 
-/* ─── Static data ─────────────────────────────────────────────────────────── */
-const RISK_COLOR = { Low: '#34d399', Medium: '#f59e0b', High: '#f87171' };
-const RISK_BG    = { Low: 'rgba(52,211,153,.12)', Medium: 'rgba(245,158,11,.12)', High: 'rgba(248,113,113,.12)' };
-
-const TRADERS = [
-  { init:'VF', name:'Vincent Ford',  handle:'@vForce',  market:'Crypto', risk:'Low',    roi:38.4, wr:73, copiers:1240, yrs:3, color:'#c8f560', badge:'Top Earner',  badgeCls:'gold',  spark:[22,28,25,35,30,38,36,38], desc:'Algorithmic BTC/ETH rotation, low drawdown strategy.' },
-  { init:'SM', name:'Sofia Mendez',  handle:'@sofiaM',  market:'Forex',  risk:'Medium', roi:24.7, wr:69, copiers:892,  yrs:5, color:'#60a5fa', badge:'Trending',    badgeCls:'blue',  spark:[10,14,12,18,15,22,20,25], desc:'EUR/USD carry trades with options overlay.' },
-  { init:'RO', name:'Riku Osaka',    handle:'@rikuPRO', market:'Stocks', risk:'Low',    roi:18.2, wr:65, copiers:544,  yrs:2, color:'#a78bfa', badge:'Verified',    badgeCls:'blue',  spark:[8,10,9,13,11,15,14,18],  desc:'S&P 500 index momentum with volatility filter.' },
-  { init:'AJ', name:'Arjun Joshi',   handle:'@arjunFX', market:'Forex',  risk:'High',   roi:52.1, wr:61, copiers:2100, yrs:7, color:'#f87171', badge:'High Return', badgeCls:'red',   spark:[20,35,28,45,38,50,42,52], desc:'High-leverage breakout scalping on majors.' },
-  { init:'LN', name:'Lisa Nakamura', handle:'@lisaN',   market:'Crypto', risk:'Low',    roi:14.6, wr:71, copiers:330,  yrs:2, color:'#34d399', badge:'Consistent',  badgeCls:'green', spark:[6,8,7,10,9,12,11,15],   desc:'Altcoin basket rebalancing, DCA-first approach.' },
-  { init:'BK', name:'Bashir Kofi',   handle:'@bKofi',   market:'Stocks', risk:'Medium', roi:21.9, wr:67, copiers:780,  yrs:4, color:'#e2e8f0', badge:'Diversified', badgeCls:'muted', spark:[9,13,11,17,14,19,17,22],  desc:'Sector rotation across tech, energy, and healthcare.' },
-];
-
-const COPYING = [
-  { ...TRADERS[0], allocated: 6000, gain: 840,  since:'Apr 2025' },
-  { ...TRADERS[1], allocated: 5000, gain: 620,  since:'Mar 2025' },
-  { ...TRADERS[2], allocated: 4000, gain: 382,  since:'May 2025' },
-];
-
-const METRICS = [
-  { label:'Copying',        value:'3 Traders', sub:'Active now',       color: T.g,  icon:'ti-copy' },
-  { label:'Copy Gains',     value:'+$1,842',   sub:'▲ +12.3% ROI',     color: '#34d399', icon:'ti-trending-up' },
-  { label:'Allocated',      value:'$15,000',   sub:'31% of portfolio', color: T.bl, icon:'ti-wallet' },
-  { label:'Best Performer', value:'@vForce',   sub:'+38.4% / 30D',    color: T.g,  icon:'ti-trophy' },
-];
-
-const MAIN_LINKS = [
-  { href:'#', icon:'ti-layout-dashboard', label:'Dashboard' },
-  { href:'#', icon:'ti-copy',             label:'Copy Trading', active:true },
-  { href:'#', icon:'ti-users',            label:'Hire a Trader' },
-  { href:'#', icon:'ti-chart-line',       label:'Insights' },
-  { href:'#', icon:'ti-robot',            label:'Marketplace', badge:'NEW' },
-  { href:'#', icon:'ti-chart-candle',     label:'Terminal' },
-];
-const ACCT_LINKS = [
-  { href:'#', icon:'ti-credit-card',      label:'Payments' },
-  { href:'#', icon:'ti-user-circle',      label:'Profile' },
-  { href:'#', icon:'ti-settings',         label:'Settings' },
-  { href:'#', icon:'ti-headset',          label:'Support' },
-];
-
 /* ─── Spark ───────────────────────────────────────────────────────────────── */
 function Spark({ data, color = T.g, h = 32, w = 72 }) {
+  if (!data || data.length < 2) return null;
   const mn = Math.min(...data), mx = Math.max(...data);
   const pts = data.map((v, i) => {
     const x = (i / (data.length - 1)) * w;
@@ -563,8 +508,96 @@ function Spark({ data, color = T.g, h = 32, w = 72 }) {
   );
 }
 
+/* ─── Login Screen ───────────────────────────────────────────────────────── */
+function LoginScreen({ onLogin }) {
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading]   = useState(false);
+  const [error, setError]       = useState('');
+
+  const handleLogin = async () => {
+    if (!email || !password) { setError('Please enter your email and password.'); return; }
+    setLoading(true);
+    setError('');
+    try {
+      // 1. Sign in via Supabase Auth
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({ email, password });
+      if (authError) { setError(authError.message); setLoading(false); return; }
+
+      const userId = authData.user.id;
+
+      // 2. Fetch user profile + USD wallet balance in parallel
+      const [{ data: profile, error: profileError }, { data: wallet }] = await Promise.all([
+        supabase
+          .from('users')
+          .select('id, first_name, last_name, handle, plan, is_verified, avatar_url')
+          .eq('id', userId)
+          .single(),
+        supabase
+          .from('wallets')
+          .select('balance')
+          .eq('user_id', userId)
+          .eq('currency', 'USD')
+          .single(),
+      ]);
+
+      if (profileError || !profile) {
+        setError('User profile not found. Please contact support.');
+        await supabase.auth.signOut();
+        setLoading(false);
+        return;
+      }
+
+      onLogin({ ...profile, balance: parseFloat(wallet?.balance ?? 0) || 0.0 });
+    } catch (err) {
+      setError('An unexpected error occurred. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="ct-login-wrap">
+      <div className="ct-login-card">
+        <div className="ct-login-brand">
+          <div className="ct-login-brand-icon"><i className="ti ti-trending-up" /></div>
+          <span className="ct-brand-name">Trade<em>Flow</em></span>
+        </div>
+        <div className="ct-login-title">Welcome back</div>
+        <div className="ct-login-sub">Sign in to your TradeFlow account</div>
+        {error && <div className="ct-login-err"><i className="ti ti-alert-circle" style={{ marginRight:6 }} />{error}</div>}
+        <div className="ct-login-field">
+          <label className="ct-login-label">Email address</label>
+          <input
+            type="email" className="ct-login-input" placeholder="you@example.com"
+            value={email} onChange={e => setEmail(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleLogin()}
+          />
+        </div>
+        <div className="ct-login-field">
+          <label className="ct-login-label">Password</label>
+          <input
+            type="password" className="ct-login-input" placeholder="••••••••"
+            value={password} onChange={e => setPassword(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && handleLogin()}
+          />
+        </div>
+        <button className="ct-login-btn" onClick={handleLogin} disabled={loading}>
+          {loading ? 'Signing in…' : 'Sign in →'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Sidebar ─────────────────────────────────────────────────────────────── */
-function Sidebar({ open }) {
+function Sidebar({ open, user, onLogout }) {
+  const initials = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : 'U';
+  const displayName = user ? `${user.first_name} ${user.last_name}` : 'User';
+  const role = user ? `${user.plan.charAt(0).toUpperCase() + user.plan.slice(1)} · ${user.is_verified ? 'Verified' : 'Unverified'}` : '';
+  const balance = typeof user?.balance === 'number' ? user.balance : 0.0;
+  const balanceStr = balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
   return (
     <aside className={`ct-sidebar${open ? ' open' : ''}`}>
       <div className="ct-brand">
@@ -572,11 +605,9 @@ function Sidebar({ open }) {
         <span className="ct-brand-name">Trade<em>Flow</em></span>
       </div>
       <div className="ct-sb-pill">
-        <div className="ct-sb-pill-label">
-          <span className="ct-live-dot" /> Live Portfolio
-        </div>
-        <div className="ct-sb-pill-val">$48,204.33</div>
-        <div className="ct-sb-pill-sub">▲ +$1,240 today · +2.64%</div>
+        <div className="ct-sb-pill-label"><span className="ct-live-dot" /> Live Portfolio</div>
+        <div className="ct-sb-pill-val">${balanceStr}</div>
+        <div className="ct-sb-pill-sub">Available balance</div>
       </div>
       <div className="ct-sb-scroll">
         <div className="ct-sb-section">Main</div>
@@ -596,30 +627,32 @@ function Sidebar({ open }) {
         ))}
       </div>
       <div className="ct-sb-user">
-        <div className="ct-sb-avatar">AK</div>
+        <div className="ct-sb-avatar">{initials}</div>
         <div>
-          <div className="ct-sb-user-name">Alex Kim</div>
-          <div className="ct-sb-user-role">Pro · Verified</div>
+          <div className="ct-sb-user-name">{displayName}</div>
+          <div className="ct-sb-user-role">{role}</div>
         </div>
+        <button className="ct-sb-logout" onClick={onLogout} title="Sign out">
+          <i className="ti ti-logout" />
+        </button>
       </div>
     </aside>
   );
 }
 
 /* ─── Topbar ──────────────────────────────────────────────────────────────── */
-function Topbar({ onMenu }) {
+function Topbar({ onMenu, user }) {
+  const firstName = user?.first_name || 'there';
+  const initials = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : 'U';
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return (
     <div className="ct-topbar">
-      <div className="ct-hamburger" onClick={onMenu}>
-        <span /><span /><span />
-      </div>
-      <div className="ct-topbar-title">Good morning, <span>Alex</span></div>
-      <div className="ct-topbar-icon">
-        <i className="ti ti-bell" />
-        <span className="ct-notif-dot" />
-      </div>
+      <div className="ct-hamburger" onClick={onMenu}><span /><span /><span /></div>
+      <div className="ct-topbar-title">{greeting}, <span>{firstName}</span></div>
+      <div className="ct-topbar-icon"><i className="ti ti-bell" /><span className="ct-notif-dot" /></div>
       <div className="ct-topbar-icon"><i className="ti ti-settings" /></div>
-      <div className="ct-topbar-avatar">AK</div>
+      <div className="ct-topbar-avatar">{initials}</div>
     </div>
   );
 }
@@ -639,30 +672,37 @@ function MetricCard({ m }) {
 }
 
 /* ─── Trader Card ─────────────────────────────────────────────────────────── */
-function TraderCard({ t, onCopy }) {
+function TraderCard({ t, onCopy, userPlan }) {
   const [hov, setHov] = useState(false);
+  const spark = t.perf?.sparkline || [];
+  const allowed = canUseCopyTrading(userPlan);
+
+  const handleClick = () => {
+    if (allowed) onCopy(t);
+  };
+
   return (
     <div
       className="ct-trader-card"
-      onClick={() => onCopy(t)}
+      onClick={handleClick}
       onMouseEnter={() => setHov(true)}
       onMouseLeave={() => setHov(false)}
-      style={{ borderColor: hov ? `${t.color}55` : undefined }}
+      style={{ borderColor: hov ? `${t.color_hex}55` : undefined, cursor: allowed ? 'pointer' : 'default' }}
     >
       <div className="ct-trader-card-header">
-        <div className={`ct-av`} style={{ width:42, height:42, background:t.color, fontSize:14 }}>{t.init}</div>
-        <span className={`ct-badge ct-badge-${t.badgeCls}`}>{t.badge}</span>
+        <div className="ct-av" style={{ width:42, height:42, background:t.color_hex, fontSize:14 }}>{t.initials}</div>
+        <span className={`ct-badge ct-badge-${t.badge_type}`}>{t.badge_label}</span>
       </div>
-      <div className="ct-trader-name">{t.name}</div>
+      <div className="ct-trader-name">{t.display_name}</div>
       <div className="ct-trader-handle">{t.handle} · {t.market}</div>
       <div style={{ marginBottom: 12 }}>
-        <Spark data={t.spark} color={t.color} />
+        <Spark data={spark} color={t.color_hex} />
       </div>
       <div className="ct-trader-stats">
         {[
-          { label:'30D ROI',  val:`+${t.roi}%`,                      color: T.gn },
-          { label:'Win Rate', val:`${t.wr}%`,                         color: T.gr },
-          { label:'Copiers',  val: t.copiers.toLocaleString(),        color: T.gr },
+          { label:'30D ROI',  val:`+${t.perf?.roi_pct ?? t.roi_pct ?? 0}%`, color: T.gn },
+          { label:'Win Rate', val:`${t.perf?.win_rate_pct ?? t.win_rate_pct ?? 0}%`, color: T.gr },
+          { label:'Copiers',  val: (t.total_copiers || 0).toLocaleString(), color: T.gr },
         ].map(({ label, val, color }) => (
           <div key={label}>
             <div className="ct-stat-val" style={{ color }}>{val}</div>
@@ -671,12 +711,19 @@ function TraderCard({ t, onCopy }) {
         ))}
       </div>
       <div className="ct-trader-footer">
-        <span className="ct-pill" style={{ background: RISK_BG[t.risk], color: RISK_COLOR[t.risk] }}>{t.risk} Risk</span>
-        <span className="ct-pill" style={{ background: 'rgba(96,165,250,.1)', color: T.bl }}>{t.yrs}Y Active</span>
+        <span className="ct-pill" style={{ background: RISK_BG[t.risk_level], color: RISK_COLOR[t.risk_level] }}>{t.risk_level} Risk</span>
+        <span className="ct-pill" style={{ background: 'rgba(96,165,250,.1)', color: T.bl }}>{t.years_active}Y Active</span>
       </div>
-      {hov && (
-        <div className="ct-hover-cta" style={{ background: `linear-gradient(transparent, ${t.color}22)` }}>
-          <button className="ct-cta-btn" style={{ background: t.color, color: '#000' }}>Copy Trader →</button>
+      {!allowed && (
+        <div className="ct-card-locked-overlay">
+          <div className="ct-lock-icon"><i className="ti ti-lock" /></div>
+          <div className="ct-lock-label">Pro Plan Required</div>
+          <div className="ct-lock-sub">Upgrade to copy this trader</div>
+        </div>
+      )}
+      {allowed && hov && (
+        <div className="ct-hover-cta" style={{ background: `linear-gradient(transparent, ${t.color_hex}22)` }}>
+          <button className="ct-cta-btn" style={{ background: t.color_hex, color: '#000' }}>Copy Trader →</button>
         </div>
       )}
     </div>
@@ -684,17 +731,25 @@ function TraderCard({ t, onCopy }) {
 }
 
 /* ─── Copying Card ────────────────────────────────────────────────────────── */
-function CopyingCard({ t }) {
-  const pct = ((t.gain / t.allocated) * 100).toFixed(1);
+function CopyingCard({ rel }) {
+  const t = rel.trader_profiles;
+  if (!t) return null;
+  const allocated = parseFloat(rel.allocated_amount) || 0;
+  const gain      = parseFloat(rel.realised_gain) || 0;
+  const pct       = allocated > 0 ? ((gain / allocated) * 100).toFixed(1) : '0.0';
+  const since     = rel.started_at ? new Date(rel.started_at).toLocaleDateString('en-US', { month:'short', year:'numeric' }) : '—';
+
   return (
     <div className="ct-copying-card">
       <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:14 }}>
-        <div className="ct-av" style={{ width:38, height:38, background:t.color, fontSize:13 }}>{t.init}</div>
+        <div className="ct-av" style={{ width:38, height:38, background:t.color_hex, fontSize:13 }}>{t.initials}</div>
         <div style={{ flex:1 }}>
-          <div style={{ fontFamily: T.serif, fontSize:14, fontWeight:600 }}>{t.name}</div>
+          <div style={{ fontFamily: T.serif, fontSize:14, fontWeight:600 }}>{t.display_name}</div>
           <div style={{ fontSize:11, color:T.nt }}>{t.handle}</div>
         </div>
-        <span className="ct-badge ct-badge-green">Live</span>
+        <span className={`ct-badge ct-badge-${rel.status === 'active' ? 'green' : rel.status === 'paused' ? 'muted' : 'red'}`}>
+          {rel.status.charAt(0).toUpperCase() + rel.status.slice(1)}
+        </span>
       </div>
       <div style={{ marginBottom:14 }}>
         <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:T.nt, marginBottom:6 }}>
@@ -702,15 +757,15 @@ function CopyingCard({ t }) {
           <span style={{ color: T.gn }}>+{pct}% gain</span>
         </div>
         <div className="ct-progress">
-          <div className="ct-progress-fill" style={{ width:`${Math.min(pct * 3, 100)}%`, background: t.color }} />
+          <div className="ct-progress-fill" style={{ width:`${Math.min(parseFloat(pct) * 3, 100)}%`, background: t.color_hex }} />
         </div>
       </div>
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:4 }}>
         {[
-          { label:'Allocated', val:`$${t.allocated.toLocaleString()}` },
-          { label:'Gain',      val:`+$${t.gain.toLocaleString()}`,    color: T.gn },
-          { label:'ROI',       val:`${t.roi}%`,                       color: T.gn },
-          { label:'Since',     val: t.since },
+          { label:'Allocated', val:`$${allocated.toLocaleString()}` },
+          { label:'Gain',      val:`+$${gain.toLocaleString()}`,    color: T.gn },
+          { label:'Ratio',     val: rel.copy_ratio === 'proportional' ? 'Prop.' : 'Fixed' },
+          { label:'Since',     val: since },
         ].map(({ label, val, color }) => (
           <div key={label} className="ct-mini-stat">
             <div className="ct-mini-stat-val" style={{ color: color || T.gr }}>{val}</div>
@@ -727,9 +782,10 @@ function CopyingCard({ t }) {
 }
 
 /* ─── Leaderboard ─────────────────────────────────────────────────────────── */
-function Leaderboard({ traders, onCopy }) {
-  const sorted = [...traders].sort((a, b) => b.roi - a.roi);
+function Leaderboard({ traders, onCopy, userPlan }) {
+  const sorted = [...traders].sort((a, b) => (b.perf?.roi_pct ?? b.roi_pct ?? 0) - (a.perf?.roi_pct ?? a.roi_pct ?? 0));
   const medals = ['🥇','🥈','🥉'];
+  const allowed = canUseCopyTrading(userPlan);
   return (
     <div className="ct-lb-wrap">
       <div className="ct-lb-head">
@@ -739,62 +795,100 @@ function Leaderboard({ traders, onCopy }) {
       <table className="ct-table">
         <thead>
           <tr>
-            {['#','Trader','Market','30D ROI','Win Rate','Copiers',''].map(h => (
-              <th key={h}>{h}</th>
-            ))}
+            {['#','Trader','Market','30D ROI','Win Rate','Copiers',''].map(h => <th key={h}>{h}</th>)}
           </tr>
         </thead>
         <tbody>
-          {sorted.map((t, i) => (
-            <tr key={t.handle}>
-              <td style={{ fontFamily: T.mono, fontWeight:800, fontSize:14, color: i < 3 ? T.g : T.nt }}>{medals[i] || i+1}</td>
-              <td>
-                <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-                  <div className="ct-av" style={{ width:30, height:30, background:t.color, fontSize:10 }}>{t.init}</div>
-                  <div>
-                    <div style={{ fontWeight:700, fontSize:13 }}>{t.name}</div>
-                    <div style={{ fontSize:11, color:T.nt }}>{t.handle}</div>
+          {sorted.map((t, i) => {
+            const roi = t.perf?.roi_pct ?? t.roi_pct ?? 0;
+            const wr  = t.perf?.win_rate_pct ?? t.win_rate_pct ?? 0;
+            return (
+              <tr key={t.handle}>
+                <td style={{ fontFamily: T.mono, fontWeight:800, fontSize:14, color: i < 3 ? T.g : T.nt }}>{medals[i] || i+1}</td>
+                <td>
+                  <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                    <div className="ct-av" style={{ width:30, height:30, background:t.color_hex, fontSize:10 }}>{t.initials}</div>
+                    <div>
+                      <div style={{ fontWeight:700, fontSize:13 }}>{t.display_name}</div>
+                      <div style={{ fontSize:11, color:T.nt }}>{t.handle}</div>
+                    </div>
                   </div>
-                </div>
-              </td>
-              <td><span className="ct-badge ct-badge-blue">{t.market}</span></td>
-              <td style={{ fontFamily:T.mono, fontWeight:800, color: T.gn }}>+{t.roi}%</td>
-              <td style={{ fontFamily:T.mono }}>{t.wr}%</td>
-              <td style={{ fontFamily:T.mono }}>{t.copiers.toLocaleString()}</td>
-              <td><button className="ct-table-copy-btn" onClick={() => onCopy(t)}>Copy</button></td>
-            </tr>
-          ))}
+                </td>
+                <td><span className="ct-badge ct-badge-blue">{t.market}</span></td>
+                <td style={{ fontFamily:T.mono, fontWeight:800, color: T.gn }}>+{roi}%</td>
+                <td style={{ fontFamily:T.mono }}>{wr}%</td>
+                <td style={{ fontFamily:T.mono }}>{(t.total_copiers||0).toLocaleString()}</td>
+                <td><button
+                  className="ct-table-copy-btn"
+                  onClick={() => allowed && onCopy(t)}
+                  disabled={!allowed}
+                  title={!allowed ? 'Upgrade to Pro to copy traders' : undefined}
+                  style={!allowed ? { opacity: 0.4, cursor: 'not-allowed' } : undefined}
+                >
+                  {allowed ? 'Copy' : '🔒 Pro'}
+                </button></td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-/* ─── Modal ───────────────────────────────────────────────────────────────── */
-function CopyModal({ trader: t, onClose }) {
-  const [amount, setAmount]   = useState('');
+/* ─── Copy Modal ──────────────────────────────────────────────────────────── */
+function CopyModal({ trader: t, onClose, userId, userPlan }) {
+  const [amount, setAmount]     = useState('');
   const [stopLoss, setStopLoss] = useState('15');
-  const [ratio, setRatio]     = useState('proportional');
-  const estReturn = amount ? ((parseFloat(amount) * t.roi) / 100).toFixed(2) : null;
+  const [ratio, setRatio]       = useState('proportional');
+  const [saving, setSaving]     = useState(false);
+  const [saved, setSaved]       = useState(false);
+  const [saveErr, setSaveErr]   = useState('');
+  const estReturn = amount ? ((parseFloat(amount) * (t.perf?.roi_pct ?? t.roi_pct ?? 0)) / 100).toFixed(2) : null;
+  const allowed = canUseCopyTrading(userPlan);
+
+  const handleStartCopying = async () => {
+    if (!amount || parseFloat(amount) <= 0) { setSaveErr('Please enter a valid amount.'); return; }
+    setSaving(true); setSaveErr('');
+    try {
+      const { error } = await supabase.from('copy_relationships').insert({
+        copier_id:        userId,
+        trader_id:        t.id,
+        allocated_amount: parseFloat(amount),
+        currency:         'USD',
+        copy_ratio:       ratio,
+        stop_loss_pct:    parseFloat(stopLoss) || null,
+        status:           'active',
+        realised_gain:    0,
+      });
+      if (error) throw error;
+      setSaved(true);
+    } catch (err) {
+      setSaveErr(err.message || 'Failed to start copying. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="ct-modal-overlay" onClick={onClose}>
       <div className="ct-modal" onClick={e => e.stopPropagation()}>
         <button className="ct-modal-close" onClick={onClose}>✕</button>
         <div style={{ display:'flex', alignItems:'center', gap:14, marginBottom:20 }}>
-          <div className="ct-av" style={{ width:50, height:50, background:t.color, fontSize:16 }}>{t.init}</div>
+          <div className="ct-av" style={{ width:50, height:50, background:t.color_hex, fontSize:16 }}>{t.initials}</div>
           <div>
-            <div style={{ fontFamily:T.serif, fontSize:19, fontWeight:600, marginBottom:4 }}>{t.name}</div>
+            <div style={{ fontFamily:T.serif, fontSize:19, fontWeight:600, marginBottom:4 }}>{t.display_name}</div>
             <div style={{ display:'flex', gap:6, flexWrap:'wrap', alignItems:'center' }}>
               <span style={{ fontSize:12, color:T.nt }}>{t.handle} · {t.market}</span>
-              <span className={`ct-badge ct-badge-${t.badgeCls}`}>{t.badge}</span>
+              <span className={`ct-badge ct-badge-${t.badge_type}`}>{t.badge_label}</span>
             </div>
           </div>
         </div>
         <div className="ct-modal-stats">
           {[
-            { label:'30D ROI',  val:`+${t.roi}%`, color: T.gn },
-            { label:'Win Rate', val:`${t.wr}%`,   color: T.gr },
-            { label:'Copiers',  val: t.copiers.toLocaleString(), color: T.gr },
+            { label:'30D ROI',  val:`+${t.perf?.roi_pct ?? t.roi_pct ?? 0}%`, color: T.gn },
+            { label:'Win Rate', val:`${t.perf?.win_rate_pct ?? t.win_rate_pct ?? 0}%`,   color: T.gr },
+            { label:'Copiers',  val: (t.total_copiers||0).toLocaleString(), color: T.gr },
           ].map(({ label, val, color }) => (
             <div key={label}>
               <div className="ct-modal-stat-val" style={{ color }}>{val}</div>
@@ -803,75 +897,262 @@ function CopyModal({ trader: t, onClose }) {
           ))}
         </div>
         <div style={{ fontSize:12, color:T.nt, marginBottom:20, lineHeight:1.6, padding:'10px 12px', background: T.s2, borderRadius:8 }}>
-          {t.desc}
+          {t.strategy_desc}
         </div>
-        {[
-          { label:'Amount to copy (USD)', ph:'e.g. 1000', val:amount,   set:setAmount,   type:'number' },
-          { label:'Stop loss (%)',         ph:'e.g. 15',   val:stopLoss, set:setStopLoss, type:'number' },
-        ].map(({ label, ph, val, set, type }) => (
-          <div key={label} style={{ marginBottom:14 }}>
-            <label className="ct-input-label">{label}</label>
-            <input type={type} placeholder={ph} value={val} onChange={e => set(e.target.value)} className="ct-input" />
+        {!allowed ? (
+          /* ── Upgrade wall for Basic plan users ── */
+          <div style={{ textAlign:'center', padding:'8px 0 4px' }}>
+            <div style={{
+              width:56, height:56, borderRadius:14, margin:'0 auto 16px',
+              background:'rgba(245,158,11,.15)', border:'1px solid rgba(245,158,11,.35)',
+              display:'flex', alignItems:'center', justifyContent:'center', fontSize:24, color:'#f59e0b',
+            }}>
+              <i className="ti ti-lock" />
+            </div>
+            <div style={{ fontFamily:T.serif, fontSize:18, fontWeight:600, marginBottom:8 }}>Pro Plan Required</div>
+            <div style={{ fontSize:13, color:T.nt, lineHeight:1.6, marginBottom:20 }}>
+              Copy trading is available on <strong style={{ color:T.gr }}>Pro</strong> and above plans.<br />
+              Upgrade your account to mirror elite traders automatically.
+            </div>
+            <div style={{ background: T.s2, borderRadius:10, padding:'14px 16px', marginBottom:20, textAlign:'left' }}>
+              {['Mirror verified top traders', 'Set custom stop-loss levels', 'Proportional & fixed ratio copying', 'Real-time performance tracking'].map(f => (
+                <div key={f} style={{ display:'flex', alignItems:'center', gap:10, fontSize:12, color:T.gr, marginBottom:8 }}>
+                  <i className="ti ti-check" style={{ color:T.gn, fontSize:14, flexShrink:0 }} />{f}
+                </div>
+              ))}
+            </div>
+            <button
+              className="ct-upgrade-cta"
+              style={{ width:'100%', background:T.g, color:'#000', borderRadius:10, padding:'13px 0', fontSize:14, fontWeight:700, fontFamily:T.sans, cursor:'pointer', border:'none', marginBottom:10 }}
+              onClick={() => { /* navigate to upgrade page */ }}
+            >
+              Upgrade to Pro →
+            </button>
+            <button className="ct-upgrade-skip" onClick={onClose}>Maybe later</button>
           </div>
-        ))}
-        <div style={{ marginBottom:16 }}>
-          <label className="ct-input-label">Copy ratio</label>
-          <select value={ratio} onChange={e => setRatio(e.target.value)} className="ct-input">
-            <option value="proportional">Proportional (recommended)</option>
-            <option value="fixed">Fixed lot size</option>
-          </select>
-        </div>
-        {estReturn && (
-          <div className="ct-proj-return">
-            <span style={{ fontSize:12, color:T.nt }}>Projected 30D return (at {t.roi}%)</span>
-            <span style={{ fontFamily:T.mono, fontWeight:800, color:T.g, fontSize:16 }}>+${estReturn}</span>
+        ) : saved ? (
+          <div style={{ background:'rgba(52,211,153,.1)', border:'1px solid rgba(52,211,153,.3)', borderRadius:10, padding:'18px', textAlign:'center', color: T.gn, fontSize:14, fontWeight:600 }}>
+            <i className="ti ti-check" style={{ fontSize:20, display:'block', marginBottom:6 }} />
+            Now copying {t.display_name.split(' ')[0]}!
           </div>
+        ) : (
+          <>
+            {[
+              { label:'Amount to copy (USD)', ph:'e.g. 1000', val:amount,   set:setAmount,   type:'number' },
+              { label:'Stop loss (%)',         ph:'e.g. 15',   val:stopLoss, set:setStopLoss, type:'number' },
+            ].map(({ label, ph, val, set, type }) => (
+              <div key={label} style={{ marginBottom:14 }}>
+                <label className="ct-input-label">{label}</label>
+                <input type={type} placeholder={ph} value={val} onChange={e => set(e.target.value)} className="ct-input" />
+              </div>
+            ))}
+            <div style={{ marginBottom:16 }}>
+              <label className="ct-input-label">Copy ratio</label>
+              <select value={ratio} onChange={e => setRatio(e.target.value)} className="ct-input">
+                <option value="proportional">Proportional (recommended)</option>
+                <option value="fixed">Fixed lot size</option>
+              </select>
+            </div>
+            {estReturn && (
+              <div className="ct-proj-return">
+                <span style={{ fontSize:12, color:T.nt }}>Projected 30D return (at {t.perf?.roi_pct ?? t.roi_pct ?? 0}%)</span>
+                <span style={{ fontFamily:T.mono, fontWeight:800, color:T.g, fontSize:16 }}>+${estReturn}</span>
+              </div>
+            )}
+            {saveErr && <div className="ct-login-err" style={{ marginBottom:12 }}>{saveErr}</div>}
+            <div className="ct-disclaimer">
+              <i className="ti ti-info-circle" style={{ color:T.g, fontSize:13, verticalAlign:-2, marginRight:5 }} />
+              Copy trading involves risk. Past performance is not a guarantee of future results.
+            </div>
+            <button
+              className="ct-btn ct-btn-accent"
+              style={{ width:'100%', padding:'13px 0', fontSize:14, borderRadius:10, fontWeight:700 }}
+              onClick={handleStartCopying}
+              disabled={saving}
+            >
+              {saving ? 'Starting…' : `Start Copying ${t.display_name.split(' ')[0]} →`}
+            </button>
+          </>
         )}
-        <div className="ct-disclaimer">
-          <i className="ti ti-info-circle" style={{ color:T.g, fontSize:13, verticalAlign:-2, marginRight:5 }} />
-          Copy trading involves risk. Past performance is not a guarantee of future results.
-        </div>
-        <button className="ct-btn ct-btn-accent" style={{ width:'100%', padding:'13px 0', fontSize:14, borderRadius:10, fontWeight:700 }}>
-          Start Copying {t.name.split(' ')[0]} →
-        </button>
-      </div>
+              </div>
     </div>
   );
 }
 
 /* ─── Root ────────────────────────────────────────────────────────────────── */
 export default function CopyTrading() {
-  const [tab, setTab]         = useState('top');
-  const [modal, setModal]     = useState(null);
+  const [user,        setUser]        = useState(null);   // logged-in users row
+  const [authLoading, setAuthLoading] = useState(true);   // initial session check
+  const [tab,         setTab]         = useState('top');
+  const [modal,       setModal]       = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [filters, setFilters] = useState({ market:'', risk:'', sort:'roi' });
+  const [filters,     setFilters]     = useState({ market:'', risk:'', sort:'roi' });
 
-  const filtered = TRADERS
+  // Data from Supabase
+  const [traders,     setTraders]     = useState([]);
+  const [copyingRels, setCopyingRels] = useState([]);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [fetchErr,    setFetchErr]    = useState('');
+
+  /* ── 1. On mount: restore session ── */
+  useEffect(() => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        const userId = session.user.id;
+
+        const [{ data: profile }, { data: wallet }] = await Promise.all([
+          supabase
+            .from('users')
+            .select('id, first_name, last_name, handle, plan, is_verified')
+            .eq('id', userId)
+            .single(),
+          supabase
+            .from('wallets')
+            .select('balance')
+            .eq('user_id', userId)
+            .eq('currency', 'USD')
+            .single(),
+        ]);
+
+        if (profile) {
+          setUser({
+            ...profile,
+            balance: parseFloat(wallet?.balance ?? 0) || 0.0,
+          });
+        }
+      }
+      setAuthLoading(false);
+    });
+  }, []);
+
+  /* ── 2. Fetch data whenever the logged-in user changes ── */
+  useEffect(() => {
+    if (!user) return;
+    fetchData();
+  }, [user]);
+
+  /* ── Fetch trader_profiles + trader_performance + copy_relationships ── */
+  const fetchData = useCallback(async () => {
+    setDataLoading(true);
+    setFetchErr('');
+    try {
+      // Fetch all active trader profiles with their 30D performance row
+      const { data: profileData, error: profileErr } = await supabase
+        .from('trader_profiles')
+        .select(`
+          id, handle, display_name, market, risk_level,
+          total_copiers, years_active, color_hex, badge_label, badge_type,
+          initials, strategy_desc, is_verified, is_active,
+          trader_performance (
+            roi_pct, win_rate_pct, max_drawdown_pct, sparkline, period
+          )
+        `)
+        .eq('is_active', true)
+        .order('total_copiers', { ascending: false });
+
+      if (profileErr) throw profileErr;
+
+      const enriched = (profileData || []).map(tp => {
+        const perf30 = (tp.trader_performance || []).find(p => p.period === '30D');
+        return {
+          ...tp,
+          perf: perf30
+            ? { ...perf30, sparkline: perf30.sparkline || [] }
+            : null,
+        };
+      });
+      setTraders(enriched);
+
+      // Fetch this user's active/paused copy relationships
+      const { data: relData, error: relErr } = await supabase
+        .from('copy_relationships')
+        .select(`
+          id, allocated_amount, currency, copy_ratio, stop_loss_pct,
+          status, realised_gain, started_at,
+          trader_profiles (
+            id, handle, display_name, color_hex, initials, market, badge_type
+          )
+        `)
+        .eq('copier_id', user.id)
+        .in('status', ['active', 'paused']);
+
+      if (relErr) throw relErr;
+      setCopyingRels(relData || []);
+
+    } catch (err) {
+      console.error('fetchData error:', err);
+      setFetchErr(err.message || 'Failed to load data.');
+    } finally {
+      setDataLoading(false);
+    }
+  }, [user]);
+
+  /* ── Derived metrics ── */
+  const totalAllocated = copyingRels.reduce((s, r) => s + parseFloat(r.allocated_amount || 0), 0);
+  const totalGain      = copyingRels.reduce((s, r) => s + parseFloat(r.realised_gain || 0), 0);
+  const bestPerformer  = traders.reduce((best, t) => {
+    const roi = t.perf?.roi_pct ?? 0;
+    return roi > (best?.perf?.roi_pct ?? 0) ? t : best;
+  }, null);
+
+  const METRICS = [
+    { label:'Copying',        value:`${copyingRels.length} Trader${copyingRels.length !== 1 ? 's' : ''}`, sub:'Active now',       color: T.g,  icon:'ti-copy' },
+    { label:'Copy Gains',     value:totalGain >= 0 ? `+$${totalGain.toLocaleString()}` : `-$${Math.abs(totalGain).toLocaleString()}`, sub:`▲ Total realised gain`, color: '#34d399', icon:'ti-trending-up' },
+    { label:'Allocated',      value:`$${totalAllocated.toLocaleString()}`, sub:'Total in copy trades', color: T.bl, icon:'ti-wallet' },
+    { label:'Best Performer', value: bestPerformer ? bestPerformer.handle : '—', sub: bestPerformer ? `+${bestPerformer.perf?.roi_pct ?? 0}% / 30D` : 'No data yet', color: T.g,  icon:'ti-trophy' },
+  ];
+
+  /* ── Filters ── */
+  const filtered = traders
     .filter(t => !filters.market || t.market === filters.market)
-    .filter(t => !filters.risk   || t.risk   === filters.risk)
+    .filter(t => !filters.risk   || t.risk_level === filters.risk)
     .sort((a, b) => {
-      if (filters.sort === 'wr')      return b.wr - a.wr;
-      if (filters.sort === 'copiers') return b.copiers - a.copiers;
-      return b.roi - a.roi;
+      if (filters.sort === 'wr')      return (b.perf?.win_rate_pct ?? b.win_rate_pct ?? 0) - (a.perf?.win_rate_pct ?? a.win_rate_pct ?? 0);
+      if (filters.sort === 'copiers') return (b.total_copiers || 0) - (a.total_copiers || 0);
+      return (b.perf?.roi_pct ?? b.roi_pct ?? 0) - (a.perf?.roi_pct ?? a.roi_pct ?? 0);
     });
 
   const sel = key => e => setFilters(f => ({ ...f, [key]: e.target.value }));
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setTraders([]);
+    setCopyingRels([]);
+  };
+
+  /* ── Render ── */
+  if (authLoading) {
+    return (
+      <>
+        <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+        <div className="ct-loading"><div className="ct-spinner" /><span>Loading…</span></div>
+      </>
+    );
+  }
+
+  if (!user) {
+    return (
+      <>
+        <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+        <LoginScreen onLogin={setUser} />
+      </>
+    );
+  }
 
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
 
       {sidebarOpen && (
-        <div onClick={() => setSidebarOpen(false)} style={{
-          position:'fixed', inset:0, background:'rgba(0,0,0,.55)', zIndex:299,
-        }} />
+        <div onClick={() => setSidebarOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', zIndex:299 }} />
       )}
 
       <div className="ct-shell">
-        <Sidebar open={sidebarOpen} />
+        <Sidebar open={sidebarOpen} user={user} onLogout={handleLogout} />
 
         <div className="ct-right">
-          <Topbar onMenu={() => setSidebarOpen(v => !v)} />
+          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} />
 
           <main className="ct-main">
             {/* Page header */}
@@ -884,14 +1165,17 @@ export default function CopyTrading() {
                 </div>
               </div>
               <div className="ct-header-actions">
-                <a href="#" className="ct-btn ct-btn-ghost ct-btn-sm">
-                  <i className="ti ti-download" /> Export
-                </a>
-                <a href="#" className="ct-btn ct-btn-accent ct-btn-sm">
-                  <i className="ti ti-plus" /> New Copy
-                </a>
+                <a href="#" className="ct-btn ct-btn-ghost ct-btn-sm"><i className="ti ti-download" /> Export</a>
+                <a href="/copy-trading" className="ct-btn ct-btn-accent ct-btn-sm"><i className="ti ti-plus" /> New Copy</a>
               </div>
             </div>
+
+            {/* Fetch error */}
+            {fetchErr && (
+              <div className="ct-login-err" style={{ marginBottom:14 }}>
+                <i className="ti ti-alert-circle" style={{ marginRight:6 }} />{fetchErr}
+              </div>
+            )}
 
             {/* Metrics */}
             <div className="ct-metrics">
@@ -900,17 +1184,16 @@ export default function CopyTrading() {
 
             {/* Controls */}
             <div className="ct-controls">
-              {/* Tabs */}
               <div className="ct-tabs">
                 {[
                   { key:'top',     label:'Top Traders', icon:'ti-users' },
-                  { key:'copying', label:'Copying',     icon:'ti-copy', count:3 },
+                  { key:'copying', label:'Copying',     icon:'ti-copy', count: copyingRels.length },
                   { key:'leaders', label:'Leaderboard', icon:'ti-trophy' },
                 ].map(({ key, label, icon, count }) => (
                   <button key={key} className={`ct-tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
                     <i className={`ti ${icon}`} />
                     {label}
-                    {count && (
+                    {count > 0 && (
                       <span className="ct-tab-count" style={{
                         background: tab === key ? 'rgba(0,0,0,.2)' : 'rgba(52,211,153,.2)',
                         color: tab === key ? '#000' : T.gn,
@@ -920,7 +1203,6 @@ export default function CopyTrading() {
                 ))}
               </div>
 
-              {/* Filters */}
               {tab === 'top' && (
                 <div className="ct-filters">
                   <select value={filters.market} onChange={sel('market')} className="ct-select">
@@ -941,33 +1223,49 @@ export default function CopyTrading() {
             </div>
 
             {/* Content */}
-            {tab === 'top' && (
-              <div className="ct-grid-3">
-                {filtered.map(t => <TraderCard key={t.handle} t={t} onCopy={setModal} />)}
-                {filtered.length === 0 && (
-                  <div style={{ gridColumn:'1/-1', textAlign:'center', color:T.nt, padding:40, fontSize:13 }}>
-                    No traders match those filters.
+            {dataLoading ? (
+              <div className="ct-loading"><div className="ct-spinner" /><span>Fetching traders…</span></div>
+            ) : (
+              <>
+                {tab === 'top' && (
+                  <div className="ct-grid-3">
+                    {filtered.map(t => <TraderCard key={t.handle} t={t} onCopy={setModal} userPlan={user?.plan} />)}
+                    {filtered.length === 0 && (
+                      <div style={{ gridColumn:'1/-1', textAlign:'center', color:T.nt, padding:40, fontSize:13 }}>
+                        No traders match those filters.
+                      </div>
+                    )}
                   </div>
                 )}
-              </div>
-            )}
 
-            {tab === 'copying' && (
-              <div className="ct-grid-3">
-                {COPYING.map(t => <CopyingCard key={t.handle} t={t} />)}
-              </div>
-            )}
+                {tab === 'copying' && (
+                  <div className="ct-grid-3">
+                    {copyingRels.length === 0
+                      ? <div style={{ gridColumn:'1/-1', textAlign:'center', color:T.nt, padding:40, fontSize:13 }}>You are not copying any traders yet.</div>
+                      : copyingRels.map(rel => <CopyingCard key={rel.id} rel={rel} />)
+                    }
+                  </div>
+                )}
 
-            {tab === 'leaders' && (
-              <div className="ct-grid-1">
-                <Leaderboard traders={TRADERS} onCopy={setModal} />
-              </div>
+                {tab === 'leaders' && (
+                  <div className="ct-grid-1">
+                    <Leaderboard traders={traders} onCopy={setModal} userPlan={user?.plan} />
+                  </div>
+                )}
+              </>
             )}
           </main>
         </div>
       </div>
 
-      {modal && <CopyModal trader={modal} onClose={() => setModal(null)} />}
+      {modal && (
+        <CopyModal
+          trader={modal}
+          onClose={() => { setModal(null); fetchData(); }}
+          userId={user.id}
+          userPlan={user?.plan}
+        />
+      )}
     </>
   );
 }
