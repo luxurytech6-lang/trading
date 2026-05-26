@@ -1,5 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import supabase from "../supabase";
+import {
+  getCurrentUser,
+  getUserProfile,
+  fetchUserWallets,
+  fetchSubscriptionPlans,
+  fetchActiveSubscription,
+  fetchTransactions,
+  fetchPaymentMetrics,
+  fetchSidebarData,
+  recordDeposit,
+  recordWithdrawal,
+  sendDepositEmail,
+  sendWithdrawalEmail,
+  getUserCurrency,
+  fetchAllCryptoWalletAddresses,
+} from '../payment/paymentService';
 
 /* ─── Design tokens (matches Insights / CopyTrading / Marketplace) ──────────── */
 const T = {
@@ -586,81 +602,78 @@ const WITHDRAW_METHODS = [
   { id: 'crypto', icon: 'ti-currency-bitcoin', name: 'Crypto',  sub: '~10 min',     bg: 'rgba(245,158,11,.12)', col: '#f59e0b' },
 ];
 
-const WALLETS = [
-  { id: 'usd', icon: 'ti-currency-dollar', name: 'USD Wallet', sub: 'US Dollar', bal: '$24,850.00', eq: '≈ 24,850.00 USDT', col: '#34d399', bg: 'rgba(52,211,153,.15)' },
-  { id: 'btc', icon: 'ti-currency-bitcoin', name: 'BTC Wallet', sub: 'Bitcoin', bal: '0.4821 BTC', eq: '≈ $29,412.63', col: '#f59e0b', bg: 'rgba(245,158,11,.15)' },
-  { id: 'eth', icon: 'ti-currency-ethereum', name: 'ETH Wallet', sub: 'Ethereum', bal: '4.820 ETH', eq: '≈ $14,556.00', col: '#60a5fa', bg: 'rgba(96,165,250,.15)' },
-  { id: 'eur', icon: 'ti-currency-euro', name: 'EUR Wallet', sub: 'Euro', bal: '€8,200.00', eq: '≈ $8,852.00', col: '#a78bfa', bg: 'rgba(167,139,250,.15)' },
-];
+/* ─── Wallet display config by currency ────────────────────── */
+const WALLET_CONFIG = {
+  USD: { id: 'usd', icon: 'ti-currency-dollar',  name: 'USD Wallet', sub: 'US Dollar',  col: '#34d399', bg: 'rgba(52,211,153,.15)',  fmt: (b) => `$${Number(b).toLocaleString('en-US',{minimumFractionDigits:2})}` },
+  BTC: { id: 'btc', icon: 'ti-currency-bitcoin',  name: 'BTC Wallet', sub: 'Bitcoin',    col: '#f59e0b', bg: 'rgba(245,158,11,.15)',  fmt: (b) => `${Number(b).toFixed(8)} BTC` },
+  ETH: { id: 'eth', icon: 'ti-currency-ethereum', name: 'ETH Wallet', sub: 'Ethereum',   col: '#60a5fa', bg: 'rgba(96,165,250,.15)',  fmt: (b) => `${Number(b).toFixed(4)} ETH` },
+  EUR: { id: 'eur', icon: 'ti-currency-euro',      name: 'EUR Wallet', sub: 'Euro',       col: '#a78bfa', bg: 'rgba(167,139,250,.15)', fmt: (b) => `€${Number(b).toLocaleString('en-US',{minimumFractionDigits:2})}` },
+};
 
-const METRICS_DATA = [
-  { label: 'Total Balance',  value: '$77,670',  sub: '+$2,140 this month', col: '#c8f560', bg: 'rgba(200,245,96,.12)',  icon: 'ti-wallet' },
-  { label: 'Deposited',      value: '$65,000',  sub: 'Lifetime deposits',  col: '#34d399', bg: 'rgba(52,211,153,.12)', icon: 'ti-arrow-bar-to-down' },
-  { label: 'Withdrawn',      value: '$12,480',  sub: 'Lifetime withdrawals',col:'#60a5fa', bg: 'rgba(96,165,250,.12)', icon: 'ti-arrow-bar-to-up' },
-  { label: 'Active Plan',    value: 'Pro',      sub: 'Renews Jun 15 2026', col: '#a78bfa', bg: 'rgba(167,139,250,.12)',icon: 'ti-crown' },
-];
+/* ─── Transaction display helpers ──────────────────────────── */
+const TXN_DISPLAY = {
+  deposit:    { icon: 'ti-arrow-bar-to-down', iconBg: 'rgba(52,211,153,.15)',  iconCol: '#34d399', amountCol: '#34d399', statusCls: 'green',  sign: '+' },
+  withdrawal: { icon: 'ti-arrow-bar-to-up',   iconBg: 'rgba(96,165,250,.15)',  iconCol: '#60a5fa', amountCol: '#f87171', statusCls: 'blue',   sign: '-' },
+  plan_charge:{ icon: 'ti-crown',             iconBg: 'rgba(167,139,250,.15)', iconCol: '#a78bfa', amountCol: '#f87171', statusCls: 'purple', sign: '-' },
+  fee:        { icon: 'ti-receipt',           iconBg: 'rgba(100,116,139,.15)', iconCol: '#64748b', amountCol: '#f87171', statusCls: 'muted',  sign: '-' },
+  payout:     { icon: 'ti-cash',              iconBg: 'rgba(52,211,153,.15)',  iconCol: '#34d399', amountCol: '#34d399', statusCls: 'green',  sign: '+' },
+};
+const STATUS_CLS_MAP = { completed: 'green', pending: 'amber', failed: 'red', reversed: 'purple' };
 
-const TRANSACTIONS = [
-  { type:'deposit',  icon:'ti-arrow-bar-to-down', iconBg:'rgba(52,211,153,.15)', iconCol:'#34d399', name:'Deposit — Bank Wire',    meta:'May 22, 2026 · 09:14 UTC', amount:'+$5,000.00', amountCol:'#34d399', status:'Completed', statusCls:'green' },
-  { type:'withdraw', icon:'ti-arrow-bar-to-up',   iconBg:'rgba(96,165,250,.15)',  iconCol:'#60a5fa', name:'Withdrawal — Crypto',    meta:'May 20, 2026 · 16:47 UTC', amount:'-$1,200.00', amountCol:'#f87171', status:'Completed', statusCls:'blue' },
-  { type:'plan',     icon:'ti-crown',             iconBg:'rgba(167,139,250,.15)', iconCol:'#a78bfa', name:'Pro Plan — Monthly',     meta:'May 15, 2026 · 00:00 UTC', amount:'-$49.00',    amountCol:'#f87171', status:'Completed', statusCls:'purple' },
-  { type:'deposit',  icon:'ti-arrow-bar-to-down', iconBg:'rgba(52,211,153,.15)', iconCol:'#34d399', name:'Deposit — Credit Card',  meta:'May 10, 2026 · 11:32 UTC', amount:'+$2,500.00', amountCol:'#34d399', status:'Completed', statusCls:'green' },
-  { type:'withdraw', icon:'ti-arrow-bar-to-up',   iconBg:'rgba(96,165,250,.15)',  iconCol:'#60a5fa', name:'Withdrawal — Bank Wire', meta:'May 05, 2026 · 14:20 UTC', amount:'-$3,000.00', amountCol:'#f87171', status:'Pending',   statusCls:'amber' },
-  { type:'deposit',  icon:'ti-arrow-bar-to-down', iconBg:'rgba(52,211,153,.15)', iconCol:'#34d399', name:'Deposit — TradeWallet',  meta:'Apr 28, 2026 · 08:55 UTC', amount:'+$10,000.00',amountCol:'#34d399', status:'Completed', statusCls:'green' },
-  { type:'plan',     icon:'ti-crown',             iconBg:'rgba(167,139,250,.15)', iconCol:'#a78bfa', name:'Pro Plan — Monthly',     meta:'Apr 15, 2026 · 00:00 UTC', amount:'-$49.00',    amountCol:'#f87171', status:'Completed', statusCls:'purple' },
-  { type:'deposit',  icon:'ti-currency-bitcoin',  iconBg:'rgba(245,158,11,.15)',  iconCol:'#f59e0b', name:'Deposit — Crypto (BTC)', meta:'Apr 08, 2026 · 19:41 UTC', amount:'+$8,000.00', amountCol:'#34d399', status:'Completed', statusCls:'green' },
-];
+function formatTxnDate(ts) {
+  return new Date(ts).toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC', timeZoneName: 'short' });
+}
 
 const PRESETS_DEPOSIT  = ['$500', '$1,000', '$2,500', '$5,000', '$10,000'];
 const PRESETS_WITHDRAW = ['$200', '$500', '$1,000', '$2,500', '$5,000'];
 
 /* ─── Sub-components ─────────────────────────────────────────────────────────── */
 
-function Sidebar({ open }) {
+function Sidebar({ open, portfolioValue = 0, dailyPnl = 0, userInitials = 'TF', userName = 'TradeFlow User', userPlan = 'Basic' }) {
   const NAV = [
     { section: 'Trading' },
-    { icon: 'ti-layout-dashboard', label: 'Dashboard' },
-    { icon: 'ti-users', label: 'Copy Trading' },
-    { icon: 'ti-building-store', label: 'Marketplace' },
+    { icon: 'ti-layout-dashboard', label: 'Dashboard',    href: '/dashboard' },
+    { icon: 'ti-users',            label: 'Copy Trading', href: '/copy-trading' },
+    { icon: 'ti-building-store',   label: 'Marketplace',  href: '/market-place' },
     { section: 'Analytics' },
-    { icon: 'ti-chart-bar', label: 'Portfolio' },
-    { icon: 'ti-news', label: 'Insights' },
+    { icon: 'ti-chart-bar',        label: 'Portfolio',    href: '/portfolio' },
+    { icon: 'ti-news',             label: 'Insights',     href: '/insights' },
     { section: 'Account' },
-    { icon: 'ti-credit-card', label: 'Payments', active: true },
-    { icon: 'ti-settings', label: 'Settings' },
+    { icon: 'ti-credit-card',      label: 'Payments',     href: '/payment', active: true },
+    { icon: 'ti-settings',         label: 'Settings',     href: '/settings' },
   ];
   return (
     <aside className={`in-sidebar${open ? ' open' : ''}`}>
-      <div className="in-brand">
+      <a href="/dashboard" className="in-brand">
         <div className="in-brand-icon"><i className="ti ti-trending-up" /></div>
         <div className="in-brand-name">Trade<em>Flow</em></div>
-      </div>
+      </a>
       <div className="in-sb-pill">
         <div className="in-sb-pill-label"><span className="in-live-dot" />Portfolio Value</div>
-        <div className="in-sb-pill-val">$77,670.24</div>
-        <div className="in-sb-pill-sub">↑ +$2,140.18 this month</div>
+        <div className="in-sb-pill-val">${Number(portfolioValue).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
+        <div className="in-sb-pill-sub">{dailyPnl >= 0 ? '↑' : '↓'} {dailyPnl >= 0 ? '+' : ''}${Number(Math.abs(dailyPnl)).toLocaleString('en-US', { minimumFractionDigits: 2 })} today</div>
       </div>
       <nav className="in-sb-scroll">
         {NAV.map((n, i) =>
           n.section
             ? <div key={i} className="in-sb-section">{n.section}</div>
-            : <a key={i} className={`in-sb-link${n.active ? ' active' : ''}`}>
+            : <a key={i} href={n.href} className={`in-sb-link${n.active ? ' active' : ''}`}>
                 <i className={`ti ${n.icon}`} />{n.label}
               </a>
         )}
       </nav>
       <div className="in-sb-user">
-        <div className="in-sb-avatar">AK</div>
+        <div className="in-sb-avatar">{userInitials}</div>
         <div>
-          <div className="in-sb-user-name">Alex Kim</div>
-          <div className="in-sb-user-role">Pro Member</div>
+          <div className="in-sb-user-name">{userName}</div>
+          <div className="in-sb-user-role">{userPlan} Member</div>
         </div>
       </div>
     </aside>
   );
 }
 
-function Topbar({ onMenu }) {
+function Topbar({ onMenu, userInitials = 'TF' }) {
   return (
     <header className="in-topbar">
       <div className="in-hamburger" onClick={onMenu}>
@@ -672,19 +685,116 @@ function Topbar({ onMenu }) {
         <i className="ti ti-bell" />
         <div className="in-notif-dot" />
       </div>
-      <div className="in-tb-avatar">AK</div>
+      <div className="in-tb-avatar">{userInitials}</div>
     </header>
   );
 }
 
-/* ── Crypto Payment Modal ── */
-const CRYPTO_COINS = [
-  { id: 'btc',  label: 'Bitcoin',  symbol: 'BTC',  icon: 'ti-currency-bitcoin', col: '#f59e0b', network: 'Bitcoin Network',  addr: 'bc1qxy2kgdygjrsqtzq2n0yrf2493p83kkfjhx0wlh' },
-  { id: 'eth',  label: 'Ethereum', symbol: 'ETH',  icon: 'ti-currency-ethereum', col: '#60a5fa', network: 'ERC-20',           addr: '0x71C7656EC7ab88b098defB751B7401B5f6d8976F' },
-  { id: 'usdt', label: 'Tether',   symbol: 'USDT', icon: 'ti-currency-dollar',  col: '#34d399', network: 'TRC-20',           addr: 'TQn9Y2khEsLJW1ChVWFMSMeRDow5KcbLSE' },
-  { id: 'bnb',  label: 'BNB',      symbol: 'BNB',  icon: 'ti-coin',             col: '#f59e0b', network: 'BEP-20',           addr: 'bnb1grpf0955h0ykzq3ar5nmum7y6gdfl6lxfn46h2' },
-  { id: 'sol',  label: 'Solana',   symbol: 'SOL',  icon: 'ti-bolt',             col: '#a78bfa', network: 'Solana Network',   addr: '7xKXtg2CW87d97TXJSDpbD5jBkheTqA83TZRuJosgAsU' },
+/* ─── Crypto coins – base config (icons / colours) ──────────────────────────
+   Addresses are fetched at runtime from `platform_crypto_wallets` and stored
+   in React state (cryptoCoins) in the root component, then passed as props.
+   Nothing is mutated at module scope.                                        */
+
+const CRYPTO_COINS_BASE = [
+  { id: 'btc',  label: 'Bitcoin',  symbol: 'BTC',  icon: 'ti-currency-bitcoin',  col: '#f59e0b', network: 'Bitcoin Network', addr: '' },
+  { id: 'eth',  label: 'Ethereum', symbol: 'ETH',  icon: 'ti-currency-ethereum', col: '#60a5fa', network: 'ERC-20',           addr: '' },
+  { id: 'usdt', label: 'Tether',   symbol: 'USDT', icon: 'ti-currency-dollar',   col: '#34d399', network: 'TRC-20',           addr: '' },
+  { id: 'bnb',  label: 'BNB',      symbol: 'BNB',  icon: 'ti-coin',              col: '#f59e0b', network: 'BEP-20',           addr: '' },
+  { id: 'sol',  label: 'Solana',   symbol: 'SOL',  icon: 'ti-bolt',              col: '#a78bfa', network: 'Solana Network',   addr: '' },
 ];
+
+/**
+ * Fetches ALL active coins from platform_crypto_wallets and maps them
+ * to the UI shape. Every field (symbol, name, network, address, icon,
+ * color) comes directly from the DB – nothing is hardcoded here.
+ * Falls back to CRYPTO_COINS_BASE (empty addresses) if the fetch fails.
+ */
+/**
+ * Normalizes a raw DB row into the UI coin shape regardless of which column
+ * names the table / paymentService helper happens to use.
+ *
+ * Supported variants observed in the wild:
+ *   address        | wallet_address | deposit_address | addr
+ *   symbol         | coin_symbol    | currency
+ *   name           | coin_name      | currency_name
+ *   network        | network_name   | chain
+ *   icon           | icon_class     | icon_name
+ *   color          | colour         | hex_color       | coin_color
+ *   is_active      | active         | enabled
+ */
+function normalizeCoinRow(row) {
+  const symbol =
+    row.symbol ?? row.coin_symbol ?? row.currency ?? '';
+  const name =
+    row.name ?? row.coin_name ?? row.currency_name ?? symbol;
+  const network =
+    row.network ?? row.network_name ?? row.chain ?? '';
+  const address =
+    row.address ?? row.wallet_address ?? row.deposit_address ?? row.addr ?? '';
+  const icon =
+    row.icon ?? row.icon_class ?? row.icon_name ?? 'ti-coin';
+  const color =
+    row.color ?? row.colour ?? row.hex_color ?? row.coin_color ?? '#64748b';
+
+  return {
+    id:      symbol.toLowerCase(),
+    label:   name,
+    symbol:  symbol.toUpperCase(),
+    network,
+    addr:    address,
+    icon,
+    col:     color,
+  };
+}
+
+async function fetchCryptoCoins() {
+  // Possible table names to try in order
+  const TABLE_NAMES = [
+    'platform_crypto_wallets',
+    'crypto_wallets',
+    'admin_crypto_wallets',
+    'platform_wallets',
+    'admin_wallets',
+    'deposit_wallets',
+    'coin_wallets',
+  ];
+
+  try {
+    let dbRows = null;
+
+    for (const table of TABLE_NAMES) {
+      const { data, error } = await supabase
+        .from(table)
+        .select('*');
+
+      console.log(`[fetchCryptoCoins] trying table "${table}":`, data, error);
+
+      // A missing table returns a PostgREST error; an empty table returns [] with no error
+      if (!error && data !== null) {
+        dbRows = data;
+        console.log(`[fetchCryptoCoins] found table: "${table}" with ${data.length} rows`);
+        break;
+      }
+    }
+
+    if (!dbRows?.length) {
+      console.warn('[fetchCryptoCoins] No wallet rows found in any known table. Falling back to base config (empty addresses).');
+      return CRYPTO_COINS_BASE;
+    }
+
+    const coins = dbRows.map(normalizeCoinRow).filter(c => c.symbol);
+    console.log('[fetchCryptoCoins] normalized coins:', coins);
+
+    // Merge: DB coins take priority; any coin missing from DB still shows with empty addr
+    const dbSymbols = new Set(coins.map(c => c.symbol));
+    const fallbacks = CRYPTO_COINS_BASE.filter(c => !dbSymbols.has(c.symbol));
+    return [...coins, ...fallbacks];
+
+  } catch (e) {
+    console.warn('[fetchCryptoCoins] Unexpected error:', e.message);
+    return CRYPTO_COINS_BASE;
+  }
+}
 
 // Minimal QR generator (pure JS, no lib needed)
 function generateQRSVG(text) {
@@ -718,11 +828,11 @@ function generateQRSVG(text) {
   </svg>`;
 }
 
-function CryptoPayModal({ plan, annual, onClose }) {
+function CryptoPayModal({ plan, annual, onClose, cryptoCoins }) {
   const [coin, setCoin] = useState('usdt');
   const [viewTab, setViewTab] = useState('qr'); // 'qr' | 'address'
   const [copied, setCopied] = useState(false);
-  const selected = CRYPTO_COINS.find(c => c.id === coin);
+  const selected = cryptoCoins.find(c => c.id === coin);
   const amount = annual ? plan.annual * 12 : plan.monthly;
 
   const handleCopy = () => {
@@ -757,7 +867,7 @@ function CryptoPayModal({ plan, annual, onClose }) {
         {/* Coin selector */}
         <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: T.nt, marginBottom: 8 }}>Select Coin</div>
         <div className="py-crypto-coins">
-          {CRYPTO_COINS.map(c => (
+          {cryptoCoins.map(c => (
             <button key={c.id} className={`py-crypto-coin${coin === c.id ? ' sel' : ''}`} onClick={() => setCoin(c.id)}>
               <i className={`ti ${c.icon}`} style={{ color: c.col }} />
               {c.symbol}
@@ -811,11 +921,20 @@ function CryptoPayModal({ plan, annual, onClose }) {
 }
 
 /* ── Plans Panel ── */
-function PlansPanel() {
+function PlansPanel({ activeSub, dbPlans, userId, onUpgrade, cryptoCoins }) {
+  // Merge DB plans into the static PLANS array for display (DB has authoritative prices)
+  // Falls back to static PLANS if DB returns empty (e.g. during dev)
   const annual = true;
-  const [chosen, setChosen] = useState('Pro');
-  const [confirmModal, setConfirmModal] = useState(null); // plan object for confirm step
-  const [cryptoModal, setCryptoModal] = useState(null);   // plan object for crypto payment
+  const [chosen, setChosen] = useState(activeSub?.subscription_plans?.name || 'Pro');
+  const [confirmModal, setConfirmModal] = useState(null);
+  const [cryptoModal, setCryptoModal] = useState(null);
+
+  // If DB plans are loaded, map prices from DB onto static PLANS for accurate pricing
+  const displayPlans = PLANS.map(p => {
+    const dbPlan = dbPlans.find(d => d.name.toLowerCase() === p.name.toLowerCase());
+    if (!dbPlan) return p;
+    return { ...p, monthly: Number(dbPlan.monthly_price), annual: Number(dbPlan.annual_price), _dbId: dbPlan.id };
+  });
 
   return (
     <div>
@@ -827,7 +946,7 @@ function PlansPanel() {
       </div>
 
       <div className="py-plans-grid">
-        {PLANS.map(p => (
+        {displayPlans.map(p => (
           <div
             key={p.name}
             className={`py-plan${p.featured ? ' featured' : ''}`}
@@ -900,6 +1019,7 @@ function PlansPanel() {
           plan={cryptoModal}
           annual={annual}
           onClose={() => setCryptoModal(null)}
+          cryptoCoins={cryptoCoins}
         />
       )}
     </div>
@@ -910,83 +1030,91 @@ function PlansPanel() {
 const CRYPTO_RATES = { btc: 61200, eth: 3020, usdt: 1, bnb: 580, sol: 148 };
 
 /* ── Crypto Deposit Modal ── */
-function CryptoDepositModal({ amount, coin, onClose, onSuccess }) {
-  const { useState: us, useEffect: ue, useRef: ur } = React;
-  const COUNTDOWN = 600; // 10 min
-  const [timeLeft, setTimeLeft] = us(COUNTDOWN);
-  const [phase, setPhase] = us('awaiting'); // awaiting | confirming | done
-  const [confirmations, setConfirmations] = us(0);
-  const [copied, setCopied] = us(false);
-  const timerRef = ur(null);
-  const confirmRef = ur(null);
+function CryptoDepositModal({ amount, coin, onClose, onSuccess, cryptoCoins }) {
+  const [copied, setCopied] = React.useState(false);
+  const [txHash, setTxHash] = React.useState('');
+  const [submitting, setSubmitting] = React.useState(false);
+  const [submitted, setSubmitted] = React.useState(false);
+  const [error, setError] = React.useState(null);
 
-  const selected = CRYPTO_COINS.find(c => c.id === coin);
+  const selected = cryptoCoins.find(c => c.id === coin);
   const rate = CRYPTO_RATES[coin] || 1;
   const coinAmt = (parseFloat(amount) / rate).toFixed(coin === 'usdt' ? 2 : 6);
 
-  ue(() => {
-    // countdown
-    timerRef.current = setInterval(() => setTimeLeft(t => Math.max(0, t - 1)), 1000);
-    // simulate detection after 5s
-    const detectTimer = setTimeout(() => {
-      setPhase('confirming');
-      let c = 0;
-      confirmRef.current = setInterval(() => {
-        c++;
-        setConfirmations(c);
-        if (c >= 3) {
-          clearInterval(confirmRef.current);
-          clearInterval(timerRef.current);
-          setPhase('done');
-          setTimeout(onSuccess, 1200);
-        }
-      }, 2000);
-    }, 5000);
-    return () => {
-      clearInterval(timerRef.current);
-      clearInterval(confirmRef.current);
-      clearTimeout(detectTimer);
-    };
-  }, []);
-
-  const mm = String(Math.floor(timeLeft / 60)).padStart(2, '0');
-  const ss = String(timeLeft % 60).padStart(2, '0');
-  const progress = ((COUNTDOWN - timeLeft) / COUNTDOWN) * 100;
-
   const handleCopy = () => {
-    navigator.clipboard.writeText(selected.addr).catch(() => {});
+    navigator.clipboard.writeText(selected?.addr ?? '').catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  return (
-    <div className="py-modal-overlay" onClick={phase === 'done' ? null : onClose}>
-      <div className="py-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
-        {phase !== 'done' && <button className="py-modal-close" onClick={onClose}><i className="ti ti-x" /></button>}
+  /**
+   * User clicks "I've Sent the Payment" after actually sending on-chain.
+   * Records the deposit as status='pending' so an admin/webhook can confirm it.
+   * Does NOT auto-complete – a real blockchain confirmation is required.
+   */
+  const handleConfirmSent = async () => {
+    if (submitting) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      // onSuccess receives the tx hash the user pasted – the parent records
+      // a pending deposit and shows the success screen.
+      await onSuccess(txHash.trim() || null);
+      setSubmitted(true);
+    } catch (err) {
+      setError(err.message ?? 'Something went wrong. Please contact support.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
-        {/* Header */}
-        <div className="py-modal-icon" style={{ background: `rgba(${selected.col === '#f59e0b' ? '245,158,11' : selected.col === '#60a5fa' ? '96,165,250' : selected.col === '#34d399' ? '52,211,153' : selected.col === '#a78bfa' ? '167,139,250' : '139,92,246'},.12)` }}>
+  if (!selected) return null;
+
+  return (
+    <div className="py-modal-overlay" onClick={submitted ? null : onClose}>
+      <div className="py-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
+        {!submitted && <button className="py-modal-close" onClick={onClose}><i className="ti ti-x" /></button>}
+
+        {/* Header icon */}
+        <div className="py-modal-icon" style={{ background: `${selected.col}1a` }}>
           <i className={`ti ${selected.icon}`} style={{ color: selected.col, fontSize: 24 }} />
         </div>
-        <div className="py-modal-title">
-          {phase === 'done' ? <>Deposit <em style={{ color: T.gn, fontStyle: 'italic' }}>Confirmed!</em></> : <>Send <em style={{ color: T.g, fontStyle: 'italic' }}>{selected.symbol}</em> to deposit</>}
-        </div>
 
-        {phase === 'done' ? (
-          <div style={{ textAlign: 'center', padding: '8px 0 8px' }}>
-            <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'rgba(52,211,153,.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
-              <i className="ti ti-check" style={{ fontSize: 36, color: T.gn }} />
-            </div>
-            <div style={{ fontFamily: T.mono, fontSize: 24, fontWeight: 700, color: T.gn, marginBottom: 6 }}>${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</div>
-            <div style={{ fontSize: 13, color: T.nt }}>has been credited to your USD Wallet</div>
-          </div>
-        ) : (
+        {submitted ? (
+          /* ── Submitted state ── */
           <>
+            <div className="py-modal-title">Deposit <em style={{ color: T.am, fontStyle: 'italic' }}>Pending</em></div>
+            <div style={{ textAlign: 'center', padding: '8px 0 16px' }}>
+              <div style={{ width: 64, height: 64, borderRadius: '50%', background: 'rgba(245,158,11,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <i className="ti ti-clock-hour-4" style={{ fontSize: 30, color: T.am }} />
+              </div>
+              <div style={{ fontFamily: T.mono, fontSize: 20, fontWeight: 700, color: T.gr, marginBottom: 8 }}>
+                {coinAmt} {selected.symbol} <span style={{ fontSize: 13, color: T.nt }}>≈ ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+              </div>
+              <div style={{ fontSize: 13, color: T.nt, lineHeight: 1.7 }}>
+                Your deposit has been submitted and is <strong style={{ color: T.am }}>awaiting blockchain confirmation</strong>.
+                Your wallet balance will be updated once the transaction is verified on-chain.
+              </div>
+              {txHash && (
+                <div style={{ marginTop: 14, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', fontSize: 11, fontFamily: T.mono, color: T.nt, wordBreak: 'break-all' }}>
+                  TX: {txHash}
+                </div>
+              )}
+            </div>
+            <button className="in-btn in-btn-ghost in-btn-sm in-btn-full" onClick={onClose}>Close</button>
+          </>
+        ) : (
+          /* ── Awaiting send state ── */
+          <>
+            <div className="py-modal-title">Send <em style={{ color: T.g, fontStyle: 'italic' }}>{selected.symbol}</em> to deposit</div>
+
             {/* Amount pill */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 18 }}>
               <div>
                 <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: T.nt, marginBottom: 4 }}>Amount to Send</div>
-                <div style={{ fontFamily: T.mono, fontSize: 22, fontWeight: 700, color: T.gr }}>{coinAmt} <span style={{ fontSize: 14, color: T.nt }}>{selected.symbol}</span></div>
+                <div style={{ fontFamily: T.mono, fontSize: 22, fontWeight: 700, color: T.gr }}>
+                  {coinAmt} <span style={{ fontSize: 14, color: T.nt }}>{selected.symbol}</span>
+                </div>
                 <div style={{ fontSize: 11, color: T.nt, marginTop: 3 }}>≈ ${parseFloat(amount).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</div>
               </div>
               <div style={{ textAlign: 'right' }}>
@@ -995,50 +1123,94 @@ function CryptoDepositModal({ amount, coin, onClose, onSuccess }) {
               </div>
             </div>
 
-            {/* Address */}
-            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: T.nt, marginBottom: 8 }}>Deposit Address</div>
-            <div className="py-addr-wrap" style={{ marginBottom: 18 }}>
-              <span className="py-addr-text">{selected.addr}</span>
-              <button className="py-addr-copy" onClick={handleCopy}>
-                {copied ? <><i className="ti ti-check" style={{ marginRight: 4 }} />Copied!</> : <><i className="ti ti-copy" style={{ marginRight: 4 }} />Copy</>}
-              </button>
+            {/* Deposit address */}
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: T.nt, marginBottom: 8 }}>
+              {selected.label} ({selected.symbol}) Deposit Address
             </div>
-
-            {/* Phase: awaiting / confirming */}
-            {phase === 'awaiting' && (
-              <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.am, animation: 'in-pulse 1.5s infinite', flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: T.am }}>Awaiting transaction on the blockchain…</span>
-                </div>
-                <div style={{ fontSize: 11, color: T.nt }}>Send exactly <strong style={{ color: T.gr, fontFamily: T.mono }}>{coinAmt} {selected.symbol}</strong> to the address above. This window will update automatically once detected.</div>
+            {selected.addr ? (
+              <div className="py-addr-wrap" style={{ marginBottom: 18 }}>
+                <span className="py-addr-text">{selected.addr}</span>
+                <button className="py-addr-copy" onClick={handleCopy}>
+                  {copied ? <><i className="ti ti-check" style={{ marginRight: 4 }} />Copied!</> : <><i className="ti ti-copy" style={{ marginRight: 4 }} />Copy</>}
+                </button>
               </div>
-            )}
-            {phase === 'confirming' && (
-              <div style={{ background: 'rgba(96,165,250,.08)', border: '1px solid rgba(96,165,250,.25)', borderRadius: 10, padding: '14px 16px', marginBottom: 16 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                  <div style={{ width: 8, height: 8, borderRadius: '50%', background: T.bl, animation: 'in-pulse 1s infinite', flexShrink: 0 }} />
-                  <span style={{ fontSize: 12, fontWeight: 600, color: T.bl }}>Transaction detected — verifying on blockchain</span>
+            ) : (
+              <div style={{ background: 'rgba(248,113,113,.08)', border: '1px solid rgba(248,113,113,.2)', borderRadius: 8, padding: '12px 14px', fontSize: 12, color: T.rd, marginBottom: 18 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <i className="ti ti-alert-triangle" style={{ flexShrink: 0, fontSize: 16 }} />
+                  <strong>No deposit address found for {selected.symbol}.</strong>
                 </div>
-                <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-                  {[0, 1, 2].map(i => (
-                    <div key={i} style={{ flex: 1, height: 6, borderRadius: 3, background: i < confirmations ? T.gn : 'var(--border)', transition: 'background .4s' }} />
+                <div style={{ color: T.nt, lineHeight: 1.6, marginBottom: 10 }}>
+                  The {selected.symbol} wallet address hasn't been configured yet. Please select a different coin or try again shortly.
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {/* Quick-switch to first coin that has an address */}
+                  {cryptoCoins.filter(c => c.addr && c.id !== coin).slice(0, 2).map(c => (
+                    <button
+                      key={c.id}
+                      style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '5px 12px', borderRadius: 6, fontSize: 11, fontWeight: 700, background: 'var(--surface2)', border: '1px solid var(--border)', color: T.gr, cursor: 'pointer' }}
+                      onClick={() => {
+                        // bubble up via the parent's setCoin — we close and let parent reopen with new coin
+                        onClose();
+                      }}
+                    >
+                      <i className={`ti ${c.icon}`} style={{ color: c.col }} />{c.symbol}
+                    </button>
                   ))}
                 </div>
-                <div style={{ fontSize: 11, color: T.nt }}>{confirmations}/3 confirmations · typically 1–3 block confirmations</div>
               </div>
             )}
 
-            {/* Countdown */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-              <span style={{ fontSize: 11, color: T.nt }}>Session expires in</span>
-              <span style={{ fontFamily: T.mono, fontSize: 13, fontWeight: 700, color: timeLeft < 60 ? T.rd : T.gr }}>{mm}:{ss}</span>
-            </div>
-            <div style={{ height: 4, background: 'var(--border)', borderRadius: 4, marginBottom: 16, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${progress}%`, background: timeLeft < 60 ? T.rd : T.g, borderRadius: 4, transition: 'width 1s linear, background .5s' }} />
+            {/* QR code */}
+            {selected.addr && (
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+                <div style={{ background: '#fff', padding: 10, borderRadius: 10, display: 'inline-block' }}
+                  dangerouslySetInnerHTML={{ __html: generateQRSVG(selected.addr) }} />
+              </div>
+            )}
+
+            {/* Optional tx hash */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1, color: T.nt, marginBottom: 6 }}>
+                Transaction Hash <span style={{ color: T.nt, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>(optional – paste after sending)</span>
+              </div>
+              <input
+                className="py-input"
+                placeholder="e.g. 0xabc123… or txid…"
+                value={txHash}
+                onChange={e => setTxHash(e.target.value)}
+                style={{ width: '100%', fontFamily: T.mono, fontSize: 12 }}
+              />
             </div>
 
-            <div className="py-security"><i className="ti ti-shield-check" />Payments confirmed on-chain · 256-bit TLS encryption</div>
+            {/* Warning */}
+            <div style={{ background: 'rgba(245,158,11,.08)', border: '1px solid rgba(245,158,11,.2)', borderRadius: 10, padding: '10px 14px', fontSize: 11, color: T.am, display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 18 }}>
+              <i className="ti ti-alert-triangle" style={{ flexShrink: 0, marginTop: 1 }} />
+              Send only <strong>{selected.symbol}</strong> on the <strong>{selected.network}</strong> network.
+              Sending a different coin or using the wrong network may result in permanent loss.
+            </div>
+
+            {error && (
+              <div style={{ background: 'rgba(248,113,113,.08)', border: '1px solid rgba(248,113,113,.2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: T.rd, marginBottom: 14 }}>
+                <i className="ti ti-alert-circle" style={{ marginRight: 6 }} />{error}
+              </div>
+            )}
+
+            {/* CTA – user clicks AFTER sending on-chain */}
+            <button
+              className="in-btn in-btn-accent in-btn-lg in-btn-full"
+              onClick={handleConfirmSent}
+              disabled={submitting || !selected.addr}
+            >
+              {submitting
+                ? <><i className="ti ti-loader" style={{ animation: 'spin 1s linear infinite' }} /> Submitting…</>
+                : <><i className="ti ti-checks" /> I've Sent the Payment</>}
+            </button>
+
+            <div className="py-security" style={{ marginTop: 12 }}>
+              <i className="ti ti-shield-check" />
+              Deposit credited after on-chain confirmation · 256-bit TLS
+            </div>
           </>
         )}
       </div>
@@ -1125,7 +1297,7 @@ function BankSupportModal({ onClose }) {
 }
 
 /* ── Deposit Panel ── */
-function DepositPanel() {
+function DepositPanel({ user, profile, wallets, currency, onDepositComplete, cryptoCoins }) {
   const [amount, setAmount] = useState('');
   const [preset, setPreset] = useState(null);
   const [method, setMethod] = useState('crypto');
@@ -1133,6 +1305,12 @@ function DepositPanel() {
   const [showCryptoModal, setShowCryptoModal] = useState(false);
   const [showBankModal, setShowBankModal] = useState(false);
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  // USD wallet balance for "Available" hint
+  const usdWallet = wallets.find(w => w.currency === 'USD');
+  const availableBalance = usdWallet ? Number(usdWallet.balance) : 0;
 
   const fee = amount ? (parseFloat(amount.replace(/[^0-9.]/g, '')) * 0.001).toFixed(2) : '0.00';
   const total = amount ? (parseFloat(amount.replace(/[^0-9.]/g, '')) || 0).toFixed(2) : '0.00';
@@ -1144,9 +1322,42 @@ function DepositPanel() {
 
   const handleDeposit = () => {
     if (!amount || parseFloat(amount) <= 0) return;
+    setError(null);
     if (method === 'crypto') setShowCryptoModal(true);
     else if (method === 'bank') setShowBankModal(true);
   };
+
+  // Called by CryptoDepositModal when blockchain confirms
+  const handleCryptoSuccess = useCallback(async (txReference) => {
+    if (!user) return;
+    setLoading(true);
+    try {
+      const txn = await recordDeposit({
+        userId: user.id,
+        currency: 'USD',
+        amount: parseFloat(amount),
+        method: `Crypto (${cryptoCoins.find(c => c.id === cryptoCoin)?.symbol || cryptoCoin.toUpperCase()})`,
+        reference: txReference || null,
+      });
+      // Send confirmation email
+      await sendDepositEmail({
+        email: profile.email,
+        firstName: profile.first_name,
+        amount: txn.net_amount,
+        currency: 'USD',
+        method: `Crypto (${cryptoCoins.find(c => c.id === cryptoCoin)?.symbol})`,
+        reference: txn.reference,
+        invoiceNumber: txn.invoice_number,
+        date: new Date(txn.created_at).toLocaleString(),
+      });
+      setSuccess(true);
+      if (onDepositComplete) onDepositComplete();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [user, profile, amount, cryptoCoin, cryptoCoins, onDepositComplete]);
 
   if (success) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 320, gap: 16 }}>
@@ -1156,6 +1367,7 @@ function DepositPanel() {
       <div style={{ fontFamily: T.serif, fontSize: 24 }}>Deposit <em style={{ color: T.gn, fontStyle: 'italic' }}>Successful!</em></div>
       <div style={{ fontSize: 13, color: T.nt, textAlign: 'center' }}>
         <strong style={{ fontFamily: T.mono, color: T.gr }}>${parseFloat(total).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> has been credited to your USD Wallet.
+        <div style={{ marginTop: 6, fontSize: 12 }}>A confirmation email has been sent to <strong style={{ color: T.gr }}>{profile?.email}</strong></div>
       </div>
       <button className="in-btn in-btn-ghost in-btn-sm" onClick={() => { setSuccess(false); setAmount(''); setPreset(null); }}>
         Make another deposit
@@ -1173,7 +1385,7 @@ function DepositPanel() {
           <div className="py-field">
             <div className="py-field-label">
               Amount
-              <span className="py-field-hint">Available: $24,850.00</span>
+              <span className="py-field-hint">Available: ${availableBalance.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
             </div>
             <div className="py-amount-wrap">
               <span className="py-amount-cur">$</span>
@@ -1213,7 +1425,7 @@ function DepositPanel() {
             <div className="py-field">
               <div className="py-field-label">Select Coin</div>
               <div className="py-crypto-coins" style={{ marginBottom: 0 }}>
-                {CRYPTO_COINS.map(c => (
+                {cryptoCoins.map(c => (
                   <button
                     key={c.id}
                     className={`py-crypto-coin${cryptoCoin === c.id ? ' sel' : ''}`}
@@ -1227,8 +1439,8 @@ function DepositPanel() {
               {amount && parseFloat(amount) > 0 && (
                 <div style={{ marginTop: 10, fontSize: 12, color: T.nt }}>
                   You'll send <strong style={{ fontFamily: T.mono, color: T.gr }}>
-                    {(parseFloat(amount) / (CRYPTO_RATES[cryptoCoin] || 1)).toFixed(cryptoCoin === 'usdt' ? 2 : 6)} {CRYPTO_COINS.find(c => c.id === cryptoCoin)?.symbol}
-                  </strong> · Rate: 1 {CRYPTO_COINS.find(c => c.id === cryptoCoin)?.symbol} ≈ ${(CRYPTO_RATES[cryptoCoin] || 1).toLocaleString()}
+                    {(parseFloat(amount) / (CRYPTO_RATES[cryptoCoin] || 1)).toFixed(cryptoCoin === 'usdt' ? 2 : 6)} {cryptoCoins.find(c => c.id === cryptoCoin)?.symbol}
+                  </strong> · Rate: 1 {cryptoCoins.find(c => c.id === cryptoCoin)?.symbol} ≈ ${(CRYPTO_RATES[cryptoCoin] || 1).toLocaleString()}
                 </div>
               )}
             </div>
@@ -1273,15 +1485,18 @@ function DepositPanel() {
 
           <div style={{ marginTop: 18, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 10, padding: 14 }}>
             <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: T.nt, marginBottom: 10 }}>Your Wallets</div>
-            {WALLETS.slice(0, 2).map(w => (
-              <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{ width: 26, height: 26, borderRadius: 7, background: w.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <i className={`ti ${w.icon}`} style={{ fontSize: 13, color: w.col }} />
+            {wallets.slice(0, 2).map(w => {
+              const cfg = WALLET_CONFIG[w.currency] || { icon: 'ti-wallet', name: `${w.currency} Wallet`, col: '#64748b', bg: 'rgba(100,116,139,.15)', fmt: (b) => `${b}` };
+              return (
+                <div key={w.id} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                  <div style={{ width: 26, height: 26, borderRadius: 7, background: cfg.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <i className={`ti ${cfg.icon}`} style={{ fontSize: 13, color: cfg.col }} />
+                  </div>
+                  <span style={{ fontSize: 12, flex: 1 }}>{cfg.name}</span>
+                  <span style={{ fontFamily: T.mono, fontSize: 12, fontWeight: 700, color: cfg.col }}>{cfg.fmt(w.balance)}</span>
                 </div>
-                <span style={{ fontSize: 12, flex: 1 }}>{w.name}</span>
-                <span style={{ fontFamily: T.mono, fontSize: 12, fontWeight: 700, color: w.col }}>{w.bal}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       </div>
@@ -1291,29 +1506,93 @@ function DepositPanel() {
           amount={total}
           coin={cryptoCoin}
           onClose={() => setShowCryptoModal(false)}
-          onSuccess={() => { setShowCryptoModal(false); setSuccess(true); }}
+          onSuccess={(txRef) => { setShowCryptoModal(false); handleCryptoSuccess(txRef); }}
+          cryptoCoins={cryptoCoins}
         />
       )}
       {showBankModal && (
         <BankSupportModal onClose={() => setShowBankModal(false)} />
+      )}
+      {error && (
+        <div style={{ position: 'fixed', bottom: 24, right: 24, background: 'var(--red-dim)', border: '1px solid rgba(248,113,113,.3)', borderRadius: 10, padding: '12px 18px', fontSize: 13, color: T.rd, zIndex: 9999, maxWidth: 340 }}>
+          <i className="ti ti-alert-triangle" style={{ marginRight: 8 }} />{error}
+        </div>
       )}
     </>
   );
 }
 
 /* ── Withdraw Panel ── */
-function WithdrawPanel() {
+function WithdrawPanel({ user, profile, wallets, onWithdrawComplete }) {
   const [amount, setAmount] = useState('');
   const [preset, setPreset] = useState(null);
   const [method, setMethod] = useState('bank');
-  const [wallet, setWallet] = useState('usd');
+  const [wallet, setWallet] = useState('USD');
   const [success, setSuccess] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [accountNum, setAccountNum] = useState('');
+  const [routing, setRouting] = useState('');
+  const [cryptoAddr, setCryptoAddr] = useState('');
 
   const numAmt = parseFloat(amount) || 0;
   const fee = (numAmt * 0.002).toFixed(2);
   const receive = Math.max(0, numAmt - parseFloat(fee)).toFixed(2);
 
+  // Build wallet display list from DB
+  const walletList = wallets.map(w => {
+    const cfg = WALLET_CONFIG[w.currency] || { id: w.currency.toLowerCase(), icon: 'ti-wallet', name: `${w.currency} Wallet`, sub: w.currency, col: '#64748b', bg: 'rgba(100,116,139,.15)', fmt: (b) => `${b} ${w.currency}` };
+    return { ...cfg, currency: w.currency, rawBalance: Number(w.balance), bal: cfg.fmt(w.balance) };
+  });
+
+  const selectedWallet = walletList.find(w => w.currency === wallet) || walletList[0];
+
   const handlePreset = (p) => { setPreset(p); setAmount(p.replace('$', '')); };
+
+  const handleWithdraw = async () => {
+    if (!amount || numAmt <= 0) return;
+    if (!user) return;
+    if (selectedWallet && numAmt > selectedWallet.rawBalance) {
+      setError('Amount exceeds wallet balance.');
+      return;
+    }
+    setError(null);
+    setLoading(true);
+    try {
+      const destination = method === 'bank'
+        ? [accountNum, routing].filter(Boolean).join(' / ')
+        : cryptoAddr;
+
+      const txn = await recordWithdrawal({
+        userId: user.id,
+        currency: wallet,
+        amount: numAmt,
+        method: method === 'bank' ? 'Bank Wire' : 'Crypto',
+        destination: destination || null,
+      });
+
+      // Send withdrawal email
+      await sendWithdrawalEmail({
+        email: profile.email,
+        firstName: profile.first_name,
+        amount: txn.amount,
+        currency: wallet,
+        netAmount: txn.net_amount,
+        fee: txn.fee,
+        method: method === 'bank' ? 'Bank Wire' : 'Crypto',
+        destination: destination || null,
+        invoiceNumber: txn.invoice_number,
+        date: new Date(txn.created_at).toLocaleString(),
+      });
+
+      setSuccess(true);
+      if (onWithdrawComplete) onWithdrawComplete();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (success) return (
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 320, gap: 16 }}>
@@ -1323,6 +1602,7 @@ function WithdrawPanel() {
       <div style={{ fontFamily: T.serif, fontSize: 22 }}>Withdrawal <em style={{ color: T.bl, fontStyle: 'italic' }}>Requested!</em></div>
       <div style={{ fontSize: 13, color: T.nt, textAlign: 'center' }}>
         <strong style={{ fontFamily: T.mono, color: T.gr }}>${parseFloat(receive).toLocaleString('en-US', { minimumFractionDigits: 2 })}</strong> will be sent via {WITHDRAW_METHODS.find(m => m.id === method)?.name}.
+        <div style={{ marginTop: 6, fontSize: 12 }}>A confirmation email has been sent to <strong style={{ color: T.gr }}>{profile?.email}</strong></div>
       </div>
       <button className="in-btn in-btn-ghost in-btn-sm" onClick={() => { setSuccess(false); setAmount(''); setPreset(null); }}>
         Make another withdrawal
@@ -1339,19 +1619,19 @@ function WithdrawPanel() {
         <div className="py-field">
           <div className="py-field-label">From Wallet</div>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {WALLETS.map(w => (
+            {walletList.map(w => (
               <button
                 key={w.id}
-                onClick={() => setWallet(w.id)}
+                onClick={() => setWallet(w.currency)}
                 style={{
                   display: 'flex', alignItems: 'center', gap: 7,
-                  background: wallet === w.id ? w.bg : 'var(--surface2)',
-                  border: `1px solid ${wallet === w.id ? w.col + '55' : 'var(--border)'}`,
+                  background: wallet === w.currency ? w.bg : 'var(--surface2)',
+                  border: `1px solid ${wallet === w.currency ? w.col + '55' : 'var(--border)'}`,
                   borderRadius: 8, padding: '7px 12px', cursor: 'pointer', transition: 'all .15s',
                 }}
               >
                 <i className={`ti ${w.icon}`} style={{ fontSize: 14, color: w.col }} />
-                <span style={{ fontFamily: T.mono, fontSize: 11, fontWeight: 700, color: wallet === w.id ? w.col : T.nt }}>{w.bal}</span>
+                <span style={{ fontFamily: T.mono, fontSize: 11, fontWeight: 700, color: wallet === w.currency ? w.col : T.nt }}>{w.bal}</span>
               </button>
             ))}
           </div>
@@ -1360,7 +1640,7 @@ function WithdrawPanel() {
         <div className="py-field">
           <div className="py-field-label">
             Amount
-            <span className="py-field-hint">Max: {WALLETS.find(w => w.id === wallet)?.bal}</span>
+            <span className="py-field-hint">Max: {selectedWallet?.bal}</span>
           </div>
           <div className="py-amount-wrap">
             <span className="py-amount-cur">$</span>
@@ -1399,23 +1679,30 @@ function WithdrawPanel() {
         {method === 'bank' && (
           <div className="py-field">
             <div className="py-field-label">Bank Account</div>
-            <input className="py-input" type="text" placeholder="Account number (IBAN / ACH)" />
-            <input className="py-input" type="text" placeholder="Routing / SWIFT code" style={{ marginTop: 10 }} />
+            <input className="py-input" type="text" placeholder="Account number (IBAN / ACH)" value={accountNum} onChange={e => setAccountNum(e.target.value)} />
+            <input className="py-input" type="text" placeholder="Routing / SWIFT code" style={{ marginTop: 10 }} value={routing} onChange={e => setRouting(e.target.value)} />
           </div>
         )}
         {method === 'crypto' && (
           <div className="py-field">
             <div className="py-field-label">Destination Address</div>
-            <input className="py-input" type="text" placeholder="0x... or bc1..." />
+            <input className="py-input" type="text" placeholder="0x... or bc1..." value={cryptoAddr} onChange={e => setCryptoAddr(e.target.value)} />
+          </div>
+        )}
+
+        {error && (
+          <div style={{ marginBottom: 12, padding: '10px 14px', background: 'var(--red-dim)', border: '1px solid rgba(248,113,113,.25)', borderRadius: 8, fontSize: 12, color: T.rd, display: 'flex', gap: 8 }}>
+            <i className="ti ti-alert-triangle" style={{ flexShrink: 0 }} />{error}
           </div>
         )}
 
         <button
           className="in-btn in-btn-blue in-btn-lg in-btn-full"
-          style={{ marginTop: 4 }}
-          onClick={() => amount && parseFloat(amount) > 0 && setSuccess(true)}
+          style={{ marginTop: 4, opacity: loading ? 0.6 : 1 }}
+          onClick={handleWithdraw}
+          disabled={loading}
         >
-          <i className="ti ti-arrow-bar-to-up" /> Withdraw ${numAmt ? numAmt.toLocaleString() : '0.00'}
+          {loading ? <><i className="ti ti-loader" style={{ animation: 'spin 1s linear infinite' }} /> Processing…</> : <><i className="ti ti-arrow-bar-to-up" /> Withdraw ${numAmt ? numAmt.toLocaleString() : '0.00'}</>}
         </button>
       </div>
 
@@ -1463,23 +1750,52 @@ function WithdrawPanel() {
 }
 
 /* ── Transactions Panel ── */
-function TransactionsPanel() {
+function TransactionsPanel({ userId, wallets }) {
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(0);
+  const [total, setTotal] = useState(0);
+  const PAGE_SIZE = 15;
 
-  const filtered = TRANSACTIONS.filter(t => {
-    const matchType = filter === 'all' || t.type === filter;
-    const matchSearch = t.name.toLowerCase().includes(search.toLowerCase());
-    return matchType && matchSearch;
+  const loadTxns = useCallback(async () => {
+    if (!userId) return;
+    setLoading(true);
+    try {
+      const { transactions: txns, total: count } = await fetchTransactions(userId, {
+        type: filter === 'all' ? 'all' : filter === 'deposit' ? 'deposit' : filter === 'withdraw' ? 'withdrawal' : 'plan_charge',
+        search,
+        page,
+        pageSize: PAGE_SIZE,
+      });
+      setTransactions(txns);
+      setTotal(count);
+    } catch (e) {
+      console.error('loadTxns:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [userId, filter, search, page]);
+
+  useEffect(() => { loadTxns(); }, [loadTxns]);
+
+  // Build wallet display list for the Wallets section
+  const walletList = wallets.map(w => {
+    const cfg = WALLET_CONFIG[w.currency] || { id: w.currency.toLowerCase(), icon: 'ti-wallet', name: `${w.currency} Wallet`, sub: w.currency, col: '#64748b', bg: 'rgba(100,116,139,.15)', fmt: (b) => `${b} ${w.currency}` };
+    return { ...cfg, currency: w.currency, bal: cfg.fmt(w.balance), eq: '' };
   });
 
-  const STATUS_CLS = { green: 'in-badge-green', blue: 'in-badge-blue', amber: 'in-badge-amber', purple: 'in-badge-purple' };
+  const STATUS_CLS = { green: 'in-badge-green', blue: 'in-badge-blue', amber: 'in-badge-amber', purple: 'in-badge-purple', red: 'in-badge-red', muted: 'in-badge-muted' };
 
   return (
     <div>
       {/* Wallets */}
       <div className="py-wallets">
-        {WALLETS.map(w => (
+        {walletList.length === 0 && (
+          <div style={{ color: T.nt, fontSize: 13, padding: 20 }}>No wallets found.</div>
+        )}
+        {walletList.map(w => (
           <div key={w.id} className={`py-wallet ${w.id}`}>
             <div className="py-wallet-head">
               <div className="py-wallet-icon" style={{ background: w.bg }}>
@@ -1510,9 +1826,9 @@ function TransactionsPanel() {
               style={{ padding: '6px 10px', fontFamily: T.sans, fontSize: 12, width: 160 }}
               placeholder="Search transactions…"
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => { setSearch(e.target.value); setPage(0); }}
             />
-            <select className="in-select" value={filter} onChange={e => setFilter(e.target.value)}>
+            <select className="in-select" value={filter} onChange={e => { setFilter(e.target.value); setPage(0); }}>
               <option value="all">All Types</option>
               <option value="deposit">Deposits</option>
               <option value="withdraw">Withdrawals</option>
@@ -1534,33 +1850,58 @@ function TransactionsPanel() {
             </tr>
           </thead>
           <tbody>
-            {filtered.length === 0 && (
+            {loading && (
+              <tr><td colSpan={4} style={{ textAlign: 'center', color: T.nt, padding: 32 }}>
+                <i className="ti ti-loader" style={{ marginRight: 8 }} />Loading…
+              </td></tr>
+            )}
+            {!loading && transactions.length === 0 && (
               <tr><td colSpan={4} style={{ textAlign: 'center', color: T.nt, padding: 32 }}>No transactions found.</td></tr>
             )}
-            {filtered.map((t, i) => (
-              <tr key={i}>
-                <td>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <div className="py-txn-icon" style={{ background: t.iconBg }}>
-                      <i className={`ti ${t.icon}`} style={{ color: t.iconCol }} />
+            {!loading && transactions.map((t) => {
+              const disp = TXN_DISPLAY[t.type] || TXN_DISPLAY['deposit'];
+              const statusCls = STATUS_CLS_MAP[t.status] || 'muted';
+              const sign = t.type === 'deposit' || t.type === 'payout' ? '+' : '-';
+              const pmLabel = t.payment_methods?.label || t.description || t.type;
+              return (
+                <tr key={t.id}>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      <div className="py-txn-icon" style={{ background: disp.iconBg }}>
+                        <i className={`ti ${disp.icon}`} style={{ color: disp.iconCol }} />
+                      </div>
+                      <div>
+                        <div className="py-txn-name">{t.description || pmLabel}</div>
+                        <div className="py-txn-meta">{t.invoice_number}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div className="py-txn-name">{t.name}</div>
-                      <div className="py-txn-meta">{t.meta}</div>
+                  </td>
+                  <td style={{ color: T.nt, fontFamily: T.mono, fontSize: 12 }}>{formatTxnDate(t.created_at)}</td>
+                  <td>
+                    <div className="py-txn-amount" style={{ color: disp.amountCol }}>
+                      {sign}{t.currency} {Number(t.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                     </div>
-                  </div>
-                </td>
-                <td style={{ color: T.nt, fontFamily: T.mono, fontSize: 12 }}>{t.meta.split(' · ')[0]}</td>
-                <td>
-                  <div className="py-txn-amount" style={{ color: t.amountCol }}>{t.amount}</div>
-                </td>
-                <td>
-                  <span className={`in-badge ${STATUS_CLS[t.statusCls]}`}>{t.status}</span>
-                </td>
-              </tr>
-            ))}
+                  </td>
+                  <td>
+                    <span className={`in-badge ${STATUS_CLS[statusCls]}`}>{t.status.charAt(0).toUpperCase() + t.status.slice(1)}</span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
+        {/* Pagination */}
+        {total > PAGE_SIZE && (
+          <div style={{ display: 'flex', justifyContent: 'center', gap: 8, padding: '12px 0', borderTop: '1px solid var(--border)' }}>
+            <button className="in-btn in-btn-ghost in-btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}>
+              <i className="ti ti-chevron-left" />Prev
+            </button>
+            <span style={{ fontSize: 12, color: T.nt, alignSelf: 'center' }}>Page {page + 1} of {Math.ceil(total / PAGE_SIZE)}</span>
+            <button className="in-btn in-btn-ghost in-btn-sm" disabled={(page + 1) * PAGE_SIZE >= total} onClick={() => setPage(p => p + 1)}>
+              Next<i className="ti ti-chevron-right" />
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1570,6 +1911,78 @@ function TransactionsPanel() {
 export default function Payment() {
   const [tab, setTab] = useState('plans');
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  // ── Auth & user data ──────────────────────────────────────
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [sidebarData, setSidebarData] = useState({ portfolioValue: 0, dailyPnl: 0 });
+
+  // ── Wallets & metrics ─────────────────────────────────────
+  const [wallets, setWallets] = useState([]);
+  const [metrics, setMetrics] = useState({ totalBalance: 0, totalDeposited: 0, totalWithdrawn: 0 });
+  const [cryptoCoins, setCryptoCoins] = useState(CRYPTO_COINS_BASE);
+
+  // ── Subscription plans ────────────────────────────────────
+  const [dbPlans, setDbPlans] = useState([]);
+  const [activeSub, setActiveSub] = useState(null);
+
+  // ── User currency ─────────────────────────────────────────
+  const [userCurrency, setUserCurrency] = useState('USD');
+
+  const [loading, setLoading] = useState(true);
+
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    try {
+      const u = await getCurrentUser();
+      if (!u) { setLoading(false); return; }
+      setUser(u);
+
+      const [prof, walletData, metricData, planData, subData, sbData, cur, coins] = await Promise.all([
+        getUserProfile(u.id),
+        fetchUserWallets(u.id),
+        fetchPaymentMetrics(u.id),
+        fetchSubscriptionPlans(),
+        fetchActiveSubscription(u.id),
+        fetchSidebarData(u.id),
+        getUserCurrency(u.id),
+        fetchCryptoCoins(),
+      ]);
+
+      setProfile(prof);
+      setWallets(walletData);
+      setMetrics(metricData);
+      setDbPlans(planData);
+      setActiveSub(subData);
+      setSidebarData(sbData);
+      setUserCurrency(cur);
+      setCryptoCoins(coins);
+    } catch (e) {
+      console.error('Payment loadAll:', e);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  // Computed values
+  const userInitials = profile
+    ? `${profile.first_name?.[0] ?? ''}${profile.last_name?.[0] ?? ''}`.toUpperCase()
+    : 'TF';
+  const userName = profile ? `${profile.first_name} ${profile.last_name}` : 'TradeFlow User';
+  const userPlan = activeSub?.subscription_plans?.name ?? profile?.plan ?? 'Basic';
+
+  const renewDate = activeSub?.current_period_end
+    ? new Date(activeSub.current_period_end).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '—';
+
+  const METRICS_DATA = [
+    { label: 'Total Balance',  value: `$${Number(metrics.totalBalance).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,  sub: userCurrency, col: '#c8f560', bg: 'rgba(200,245,96,.12)',  icon: 'ti-wallet' },
+    { label: 'Deposited',      value: `$${Number(metrics.totalDeposited).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, sub: 'Lifetime deposits',  col: '#34d399', bg: 'rgba(52,211,153,.12)', icon: 'ti-arrow-bar-to-down' },
+    { label: 'Withdrawn',      value: `$${Number(metrics.totalWithdrawn).toLocaleString('en-US', { minimumFractionDigits: 2 })}`, sub: 'Lifetime withdrawals', col: '#60a5fa', bg: 'rgba(96,165,250,.12)', icon: 'ti-arrow-bar-to-up' },
+    { label: 'Active Plan',    value: userPlan, sub: activeSub ? `Renews ${renewDate}` : 'No active subscription', col: '#a78bfa', bg: 'rgba(167,139,250,.12)', icon: 'ti-crown' },
+  ];
 
   const TABS = [
     { key: 'plans',    label: 'Plans',        icon: 'ti-crown' },
@@ -1589,58 +2002,77 @@ export default function Payment() {
       )}
 
       <div className="in-shell">
-        <Sidebar open={sidebarOpen} />
+        <Sidebar
+          open={sidebarOpen}
+          portfolioValue={sidebarData.portfolioValue}
+          dailyPnl={sidebarData.dailyPnl}
+          userInitials={userInitials}
+          userName={userName}
+          userPlan={userPlan}
+        />
 
         <div className="in-right">
-          <Topbar onMenu={() => setSidebarOpen(v => !v)} />
+          <Topbar onMenu={() => setSidebarOpen(v => !v)} userInitials={userInitials} />
 
           <main className="in-main">
-            {/* Page header */}
-            <div className="in-page-header">
-              <div>
-                <div className="in-page-title"><em>Payments</em></div>
-                <div className="in-page-sub">
-                  <span className="in-live-dot" />
-                  Manage your plans, deposits, withdrawals, and billing history.
-                </div>
+            {/* Loading skeleton */}
+            {loading && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 200, color: T.nt, gap: 12 }}>
+                <i className="ti ti-loader" style={{ fontSize: 24, animation: 'spin 1s linear infinite' }} />
+                Loading payment data…
               </div>
-              <div className="in-header-actions">
-                <a href="#" className="in-btn in-btn-ghost in-btn-sm">
-                  <i className="ti ti-file-invoice" /> Invoices
-                </a>
-              </div>
-            </div>
+            )}
 
-            {/* Metrics */}
-            <div className="py-metrics">
-              {METRICS_DATA.map(m => (
-                <div key={m.label} className="py-metric">
-                  <div className="py-metric-icon" style={{ background: m.bg }}>
-                    <i className={`ti ${m.icon}`} style={{ color: m.col }} />
+            {!loading && (
+              <>
+                {/* Page header */}
+                <div className="in-page-header">
+                  <div>
+                    <div className="in-page-title"><em>Payments</em></div>
+                    <div className="in-page-sub">
+                      <span className="in-live-dot" />
+                      Manage your plans, deposits, withdrawals, and billing history.
+                    </div>
                   </div>
-                  <div className="py-metric-label">{m.label}</div>
-                  <div className="py-metric-value">{m.value}</div>
-                  <div className="py-metric-sub" style={{ color: m.col }}>{m.sub}</div>
+                  <div className="in-header-actions">
+                    <a href="#" className="in-btn in-btn-ghost in-btn-sm">
+                      <i className="ti ti-file-invoice" /> Invoices
+                    </a>
+                  </div>
                 </div>
-              ))}
-            </div>
 
-            {/* Tabs */}
-            <div className="in-controls">
-              <div className="in-tabs">
-                {TABS.map(({ key, label, icon }) => (
-                  <button key={key} className={`in-tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
-                    <i className={`ti ${icon}`} />{label}
-                  </button>
-                ))}
-              </div>
-            </div>
+                {/* Metrics */}
+                <div className="py-metrics">
+                  {METRICS_DATA.map(m => (
+                    <div key={m.label} className="py-metric">
+                      <div className="py-metric-icon" style={{ background: m.bg }}>
+                        <i className={`ti ${m.icon}`} style={{ color: m.col }} />
+                      </div>
+                      <div className="py-metric-label">{m.label}</div>
+                      <div className="py-metric-value">{m.value}</div>
+                      <div className="py-metric-sub" style={{ color: m.col }}>{m.sub}</div>
+                    </div>
+                  ))}
+                </div>
 
-            {/* Content */}
-            {tab === 'plans'    && <PlansPanel />}
-            {tab === 'deposit'  && <DepositPanel />}
-            {tab === 'withdraw' && <WithdrawPanel />}
-            {tab === 'history'  && <TransactionsPanel />}
+                {/* Tabs */}
+                <div className="in-controls">
+                  <div className="in-tabs">
+                    {TABS.map(({ key, label, icon }) => (
+                      <button key={key} className={`in-tab${tab === key ? ' active' : ''}`} onClick={() => setTab(key)}>
+                        <i className={`ti ${icon}`} />{label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Content — pass live data to all panels */}
+                {tab === 'plans'    && <PlansPanel activeSub={activeSub} dbPlans={dbPlans} userId={user?.id} onUpgrade={loadAll} cryptoCoins={cryptoCoins} />}
+                {tab === 'deposit'  && <DepositPanel user={user} profile={profile} wallets={wallets} currency={userCurrency} onDepositComplete={loadAll} cryptoCoins={cryptoCoins} />}
+                {tab === 'withdraw' && <WithdrawPanel user={user} profile={profile} wallets={wallets} onWithdrawComplete={loadAll} />}
+                {tab === 'history'  && <TransactionsPanel userId={user?.id} wallets={wallets} />}
+              </>
+            )}
           </main>
         </div>
       </div>

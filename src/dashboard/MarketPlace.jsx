@@ -769,12 +769,27 @@ function ActiveSubscriptions({ userId, refreshKey }) {
   );
 }
 
-/* ── Subscribe / Activate modal — writes to marketplace_subscriptions ── */
+/* ── Subscribe / Activate modal — 3-step: confirm → payment → success ── */
 function SubscribeModal({ item, type, onClose, userId, onSuccess }) {
-  const [step,    setStep]    = useState(1);
-  const [saving,  setSaving]  = useState(false);
-  const [saveErr, setSaveErr] = useState('');
-  const isBot = type === 'bot';
+  const [step,           setStep]           = useState(1);
+  const [saving,         setSaving]         = useState(false);
+  const [saveErr,        setSaveErr]        = useState('');
+
+  // Platform crypto deposit wallets
+  const [cryptoWallets,  setCryptoWallets]  = useState([]);
+  const [cryptoLoading,  setCryptoLoading]  = useState(false);
+
+  // Payment UI
+  const [selectedCrypto, setSelectedCrypto] = useState(null);
+  const [copied,         setCopied]         = useState(false);
+  const [paying,         setPaying]         = useState(false);
+  const [payErr,         setPayErr]         = useState('');
+
+  // Success receipt
+  const [receipt,        setReceipt]        = useState(null);
+
+  const isBot       = type === 'bot';
+  const annualPrice = parseFloat(item.price_monthly || 0) * 12;
 
   const roi      = item.roi_12m_pct  != null ? `+${parseFloat(item.roi_12m_pct).toFixed(1)}%`  : '—';
   const winRate  = item.win_rate_pct != null ? `${parseFloat(item.win_rate_pct).toFixed(1)}%`  : '—';
@@ -786,11 +801,11 @@ function SubscribeModal({ item, type, onClose, userId, onSuccess }) {
     ? [{ label: '12m ROI', val: roi, color: T.gn }, { label: 'Trades', val: trades, color: T.gr }, { label: 'Win Rate', val: winRate, color: T.gr }]
     : [{ label: '12m ROI', val: roi, color: T.gn }, { label: 'Subscribers', val: subs, color: T.gr }, { label: 'Accuracy', val: accuracy, color: T.gr }];
 
+  /* ── Step 1 → 2: check existing sub, load wallet + crypto options ── */
   const handleConfirm = async () => {
     if (!userId) { setSaveErr('You must be logged in to subscribe.'); return; }
     setSaving(true); setSaveErr('');
 
-    // Guard: check for existing active subscription for this item
     const { data: existing } = await supabase
       .from('marketplace_subscriptions')
       .select('id')
@@ -804,31 +819,96 @@ function SubscribeModal({ item, type, onClose, userId, onSuccess }) {
       setSaving(false);
       return;
     }
+    setSaving(false);
 
+    // Fetch platform crypto deposit addresses only
+    setCryptoLoading(true);
+    const { data: crypto } = await supabase
+      .from('platform_crypto_wallets')
+      .select('*')
+      .eq('is_active', true)
+      .order('is_default', { ascending: false });
+    setCryptoLoading(false);
+
+    setCryptoWallets(crypto || []);
+    const def = (crypto || []).find(c => c.is_default) || (crypto || [])[0];
+    if (def) setSelectedCrypto(def);
+    setStep(2);
+  };
+
+  /* ── Crypto pay: record pending tx, create sub ── */
+  const handleCryptoPay = async () => {
+    if (!selectedCrypto) return;
+    setPaying(true); setPayErr('');
+
+    await supabase.from('transactions').insert({
+      user_id:     userId,
+      type:        'marketplace_purchase',
+      amount:      -annualPrice,
+      currency:    'USD',
+      description: `Annual ${isBot ? 'bot' : 'signal'} plan: ${item.name} — awaiting ${selectedCrypto.symbol} deposit`,
+      status:      'pending',
+    });
+
+    await _createSub();
+    setReceipt({ method: selectedCrypto.symbol, amount: `$${annualPrice.toFixed(2)} equiv.`, crypto: selectedCrypto });
+    setPaying(false);
+    onSuccess();
+    setStep(3);
+  };
+
+  /* ── Shared: insert marketplace_subscriptions row ── */
+  const _createSub = async () => {
     const renewsAt = new Date();
-    renewsAt.setDate(renewsAt.getDate() + 30);
-
-    const { error } = await supabase.from('marketplace_subscriptions').insert({
+    renewsAt.setFullYear(renewsAt.getFullYear() + 1);
+    await supabase.from('marketplace_subscriptions').insert({
       user_id:   userId,
-      item_id:   item.id,          // UUID FK → marketplace_items.id
+      item_id:   item.id,
       status:    'active',
       pnl_30d:   0,
       renews_at: renewsAt.toISOString(),
     });
-
-    setSaving(false);
-    if (error) { setSaveErr(error.message); return; }
-    setStep(2);
-    onSuccess();
   };
+
+  const copyAddress = () => {
+    if (!selectedCrypto?.address) return;
+    navigator.clipboard.writeText(selectedCrypto.address).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+
+
+  /* ── Step indicator shared ── */
+  const StepBar = ({ active }) => (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 20 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <div style={{ width: 22, height: 22, borderRadius: '50%', background: active === 1 ? T.g : T.gn, color: '#000', fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {active > 1 ? <i className="ti ti-check" style={{ fontSize: 11 }} /> : '1'}
+        </div>
+        <span style={{ fontSize: 11, fontWeight: active === 1 ? 700 : 400, color: active === 1 ? T.g : T.nt }}>Confirm</span>
+      </div>
+      <div style={{ flex: 1, height: 1, background: active > 1 ? T.g : T.br }} />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+        <div style={{ width: 22, height: 22, borderRadius: '50%', background: active === 2 ? T.g : active > 2 ? T.gn : T.br, color: active >= 2 ? '#000' : T.nt, fontSize: 11, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          {active > 2 ? <i className="ti ti-check" style={{ fontSize: 11 }} /> : '2'}
+        </div>
+        <span style={{ fontSize: 11, fontWeight: active === 2 ? 700 : 400, color: active === 2 ? T.g : T.nt }}>Payment</span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="mp-modal-overlay" onClick={onClose}>
-      <div className="mp-modal" onClick={e => e.stopPropagation()}>
+      <div className="mp-modal" style={{ maxWidth: 480 }} onClick={e => e.stopPropagation()}>
         <button className="mp-modal-close" onClick={onClose}>✕</button>
 
-        {step === 1 ? (
+        {/* ════════════════ STEP 1: Plan Confirmation ════════════════ */}
+        {step === 1 && (
           <>
+            <StepBar active={1} />
+
             <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 20 }}>
               <div className="mp-item-icon" style={{ background: item.color_hex || T.g, width: 50, height: 50, borderRadius: 13 }}>
                 <i className={`ti ${item.icon_class || 'ti-robot'}`} style={{ fontSize: 22 }} />
@@ -861,16 +941,28 @@ function SubscribeModal({ item, type, onClose, userId, onSuccess }) {
                 <span>{item.name}</span>
               </div>
               <div className="mp-order-row">
-                <span className="mp-order-row-label">Billing</span><span>Monthly</span>
+                <span className="mp-order-row-label">Billing</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Annual
+                  <span style={{ fontSize: 10, background: 'rgba(200,245,96,.15)', color: T.g, padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>1 YEAR</span>
+                </span>
               </div>
               {!isBot && item.delivery_method && (
                 <div className="mp-order-row">
                   <span className="mp-order-row-label">Delivery</span><span>{item.delivery_method}</span>
                 </div>
               )}
+              <div className="mp-order-row" style={{ opacity: .65 }}>
+                <span className="mp-order-row-label">Monthly rate</span>
+                <span style={{ fontFamily: T.mono }}>${parseFloat(item.price_monthly).toFixed(2)}/mo</span>
+              </div>
+              <div className="mp-order-row" style={{ opacity: .65 }}>
+                <span className="mp-order-row-label">× 12 months</span>
+                <span style={{ fontFamily: T.mono }}>= ${annualPrice.toFixed(2)}</span>
+              </div>
               <div className="mp-order-total">
-                <span>Total today</span>
-                <span style={{ color: T.g, fontFamily: T.mono }}>${item.price_monthly}.00</span>
+                <span>Annual total</span>
+                <span style={{ color: T.g, fontFamily: T.mono }}>${annualPrice.toFixed(2)}</span>
               </div>
             </div>
 
@@ -879,7 +971,6 @@ function SubscribeModal({ item, type, onClose, userId, onSuccess }) {
                 <i className="ti ti-alert-circle" /> {saveErr}
               </div>
             )}
-
             <div className="mp-disclaimer">
               <i className="ti ti-info-circle" style={{ color: T.g, fontSize: 13, verticalAlign: -2, marginRight: 5 }} />
               {isBot
@@ -892,21 +983,162 @@ function SubscribeModal({ item, type, onClose, userId, onSuccess }) {
               <button className="mp-btn mp-btn-accent mp-btn-sm"
                 style={{ flex: 1, padding: '10px 0', fontWeight: 700, fontSize: 13 }}
                 onClick={handleConfirm} disabled={saving}>
-                {saving ? 'Processing…' : isBot ? 'Confirm & Activate →' : 'Confirm & Subscribe →'}
+                {saving
+                  ? <><i className="ti ti-loader-2" style={{ fontSize: 14 }} /> Checking…</>
+                  : isBot ? 'Confirm & Activate →' : 'Confirm & Subscribe →'}
               </button>
             </div>
           </>
-        ) : (
+        )}
+
+        {/* ════════════════ STEP 2: Payment ════════════════ */}
+        {step === 2 && (
+          <>
+            <StepBar active={2} />
+
+            {/* Header */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 18 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, background: 'rgba(200,245,96,.12)', border: '1px solid rgba(200,245,96,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <i className="ti ti-currency-bitcoin" style={{ fontSize: 18, color: T.g }} />
+              </div>
+              <div>
+                <div style={{ fontFamily: T.serif, fontSize: 16, fontWeight: 600 }}>Crypto Deposit</div>
+                <div style={{ fontSize: 11, color: T.nt, marginTop: 2 }}>
+                  Send <span style={{ fontFamily: T.mono, color: T.g, fontWeight: 700 }}>${annualPrice.toFixed(2)}</span> equivalent to activate your 1-year {isBot ? 'bot' : 'signal'} plan
+                </div>
+              </div>
+            </div>
+
+            {/* Crypto coin selector */}
+            <>
+              <div style={{ marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: T.nt, marginBottom: 8, textTransform: 'uppercase', letterSpacing: .8 }}>Select coin</div>
+                  {cryptoLoading ? (
+                    <div style={{ color: T.nt, fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}><i className="ti ti-loader-2" /> Loading…</div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {cryptoWallets.map(cw => {
+                        const active = selectedCrypto?.id === cw.id;
+                        return (
+                          <button key={cw.id}
+                            onClick={() => setSelectedCrypto(cw)}
+                            style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 9,
+                              background: active ? `${cw.color}22` : T.s2,
+                              border: `1px solid ${active ? cw.color : T.br}`,
+                              cursor: 'pointer', transition: 'all .15s', fontFamily: T.sans }}>
+                            <i className={`ti ${cw.icon}`} style={{ fontSize: 16, color: cw.color }} />
+                            <div style={{ textAlign: 'left' }}>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: active ? cw.color : T.gr }}>{cw.symbol}</div>
+                              <div style={{ fontSize: 10, color: T.nt }}>{cw.name}</div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                      {cryptoWallets.length === 0 && (
+                        <div style={{ fontSize: 12, color: T.nt }}>No crypto wallets configured.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Selected crypto deposit details */}
+                {selectedCrypto && (
+                  <div style={{ background: T.s2, border: `1px solid ${T.br}`, borderRadius: 12, padding: 16, marginBottom: 14 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14, paddingBottom: 12, borderBottom: `1px solid ${T.br}` }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 9, background: `${selectedCrypto.color}22`, border: `1px solid ${selectedCrypto.color}44`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <i className={`ti ${selectedCrypto.icon}`} style={{ fontSize: 18, color: selectedCrypto.color }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: T.gr }}>{selectedCrypto.name}</div>
+                        <div style={{ fontSize: 11, color: T.nt }}>{selectedCrypto.network}</div>
+                      </div>
+                      {selectedCrypto.is_default && (
+                        <span style={{ marginLeft: 'auto', fontSize: 9, fontWeight: 700, background: 'rgba(200,245,96,.12)', color: T.g, padding: '2px 7px', borderRadius: 4, border: '1px solid rgba(200,245,96,.2)' }}>DEFAULT</span>
+                      )}
+                    </div>
+
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.nt, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8 }}>Deposit Address</div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: T.bg, borderRadius: 8, border: `1px solid ${T.br}`, padding: '10px 12px', marginBottom: 12 }}>
+                      <div style={{ flex: 1, fontFamily: T.mono, fontSize: 11, color: T.gr, wordBreak: 'break-all', lineHeight: 1.5 }}>
+                        {selectedCrypto.address}
+                      </div>
+                      <button
+                        onClick={copyAddress}
+                        style={{ flexShrink: 0, background: copied ? 'rgba(52,211,153,.15)' : T.s2, border: `1px solid ${copied ? T.gn : T.br}`, borderRadius: 6, padding: '6px 10px', cursor: 'pointer', color: copied ? T.gn : T.nt, fontFamily: T.sans, fontSize: 11, fontWeight: 600, transition: 'all .2s', display: 'flex', alignItems: 'center', gap: 5 }}>
+                        {copied ? <><i className="ti ti-check" style={{ fontSize: 12 }} /> Copied</> : <><i className="ti ti-copy" style={{ fontSize: 12 }} /> Copy</>}
+                      </button>
+                    </div>
+
+                    <div style={{ background: 'rgba(200,245,96,.05)', border: '1px solid rgba(200,245,96,.12)', borderRadius: 8, padding: '10px 12px', fontSize: 11, color: T.nt, lineHeight: 1.6 }}>
+                      <i className="ti ti-info-circle" style={{ color: T.g, marginRight: 5, verticalAlign: -2 }} />
+                      Send exactly <span style={{ fontFamily: T.mono, color: T.g, fontWeight: 700 }}>${annualPrice.toFixed(2)}</span> equivalent in <strong style={{ color: T.gr }}>{selectedCrypto.symbol}</strong> to this address. Your plan activates once the deposit is confirmed.
+                    </div>
+                  </div>
+                )}
+
+                {payErr && (
+                  <div style={{ background: 'rgba(248,113,113,.1)', border: '1px solid rgba(248,113,113,.25)', borderRadius: 8, padding: '10px 14px', marginBottom: 12, fontSize: 12, color: T.rd, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className="ti ti-alert-circle" /> {payErr}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="mp-btn mp-btn-ghost mp-btn-sm" style={{ padding: '10px 16px' }} onClick={() => setStep(1)} disabled={paying}>
+                    <i className="ti ti-arrow-left" />
+                  </button>
+                  <button className="mp-btn mp-btn-accent mp-btn-sm"
+                    style={{ flex: 1, padding: '10px 0', fontWeight: 700, fontSize: 13, opacity: selectedCrypto ? 1 : .4 }}
+                    onClick={handleCryptoPay} disabled={paying || !selectedCrypto}>
+                    {paying ? <><i className="ti ti-loader-2" style={{ fontSize: 14 }} /> Submitting…</> : <><i className="ti ti-send" style={{ fontSize: 13 }} /> I've Sent the Payment →</>}
+                  </button>
+                </div>
+            </>
+
+            <div style={{ textAlign: 'center', marginTop: 12, fontSize: 11, color: T.nt, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}>
+              <i className="ti ti-shield-check" style={{ color: T.gn, fontSize: 12 }} />
+              Secured · TradeFlow encrypted platform
+            </div>
+          </>
+        )}
+
+        {/* ════════════════ STEP 3: Success ════════════════ */}
+        {step === 3 && (
           <div style={{ textAlign: 'center', padding: '16px 0' }}>
             <div className="mp-success-ring"><i className="ti ti-check" /></div>
             <div style={{ fontFamily: T.serif, fontSize: 20, marginBottom: 8 }}>
               {isBot ? 'Bot Activated!' : 'Subscribed!'}
             </div>
-            <p style={{ fontSize: 13, color: T.nt, marginBottom: 20, lineHeight: 1.6 }}>
+            <p style={{ fontSize: 13, color: T.nt, marginBottom: 12, lineHeight: 1.6 }}>
               <strong style={{ color: T.gr }}>{item.name}</strong> is now {isBot
                 ? 'running on your connected exchange account'
                 : 'sending signals to your dashboard'}.
             </p>
+            {receipt && (
+              <div style={{ background: T.s2, border: `1px solid ${T.br}`, borderRadius: 10, padding: '14px 16px', marginBottom: 20, fontSize: 12, textAlign: 'left' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ color: T.nt }}>Amount</span>
+                  <span style={{ fontFamily: T.mono, color: T.g, fontWeight: 700 }}>{receipt.amount}</span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <span style={{ color: T.nt }}>Method</span>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+                    {receipt.crypto
+                      ? <><i className={`ti ${receipt.crypto.icon}`} style={{ color: receipt.crypto.color }} />{receipt.method}</>
+                      : <><i className="ti ti-wallet" style={{ color: T.gn }} />{receipt.method}</>}
+                  </span>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: T.nt }}>Duration</span>
+                  <span style={{ fontWeight: 600 }}>1 Year</span>
+                </div>
+                {receipt.crypto && (
+                  <div style={{ marginTop: 10, padding: '7px 10px', background: 'rgba(96,165,250,.07)', border: '1px solid rgba(96,165,250,.2)', borderRadius: 8, fontSize: 11, color: T.bl, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <i className="ti ti-clock" />
+                    Crypto deposits confirm within 1–3 hours. Your plan is already active.
+                  </div>
+                )}
+              </div>
+            )}
             <button className="mp-btn mp-btn-accent mp-btn-sm"
               style={{ padding: '10px 28px', fontWeight: 700 }} onClick={onClose}>
               Done
@@ -950,7 +1182,7 @@ export default function Marketplace() {
         const uid = session.user.id;
         const [{ data: profile }, { data: wallet }] = await Promise.all([
           supabase.from('users').select('id, first_name, last_name, handle, plan, is_verified').eq('id', uid).single(),
-          supabase.from('wallets').select('balance').eq('user_id', uid).eq('currency', 'USD').single(),
+          supabase.from('wallets').select('balance').eq('user_id', uid).eq('currency', 'USD').maybeSingle(),
         ]);
         if (profile) setUser({ ...profile, balance: parseFloat(wallet?.balance ?? 0) });
       }

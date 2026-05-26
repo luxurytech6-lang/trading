@@ -927,15 +927,15 @@ function Ticker() {
   );
 }
 
-function MetricsGrid({ snapshot }) {
-  const fmt    = n => `$${Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits:0, maximumFractionDigits:0 })}`;
+function MetricsGrid({ snapshot, currSymbol = '$' }) {
+  const fmt    = n => `${currSymbol}${Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits:0, maximumFractionDigits:0 })}`;
   const fmtPct = n => `${Number(n ?? 0) >= 0 ? '+' : ''}${Number(n ?? 0).toFixed(1)}%`;
 
-  const totalValue  = snapshot ? fmt(snapshot.total_value)            : '$0';
+  const totalValue  = snapshot ? fmt(snapshot.total_value)            : ` ${currSymbol}0`;
   const dailyAbs    = snapshot ? fmt(Math.abs(snapshot.daily_pnl))    : '$0';
   const dailyDir    = snapshot && Number(snapshot.daily_pnl) >= 0 ? '▲' : '▼';
   const dailyCls    = snapshot && Number(snapshot.daily_pnl) >= 0 ? 'badge-up' : 'badge-dn';
-  const totalPnl    = snapshot ? `${Number(snapshot.total_pnl) >= 0 ? '+' : ''}${fmt(snapshot.total_pnl)}` : '$0';
+  const totalPnl    = snapshot ? `${Number(snapshot.total_pnl) >= 0 ? '+' : ''}${fmt(snapshot.total_pnl)}` : `+${currSymbol}0`;
   const totalPnlPct = snapshot ? fmtPct(snapshot.total_pnl_pct)       : '+0.0%';
   const openPos     = snapshot ? String(snapshot.open_positions)       : '0';
   const winRate     = snapshot ? `${Number(snapshot.win_rate_pct).toFixed(0)}%` : '0%';
@@ -1215,7 +1215,7 @@ function RightColumn({ snapshot, copyRels }) {
           {[
             { href:'/copy-trading', icon:'ti-copy',      label:'Start Copy Trading' },
             { href:'/hire-trader', icon:'ti-users',     label:'Hire a Trader'      },
-            { href:'/payment', icon:'ti-plus',      label:'Deposit Funds'      },
+            { href:'/payments', icon:'ti-plus',      label:'Deposit Funds'      },
             { href:'/insights', icon:'ti-chart-bar', label:'View Insights'      },
           ].map(a => (
             <a key={a.label} href={a.href} className="quick-btn">
@@ -1257,8 +1257,8 @@ export default function Dashboard() {
         { data: copies },
         { data: mp },
       ] = await Promise.all([
-        supabase.from('users').select('first_name,last_name,email,plan,is_verified').eq('id', uid).single(),
-        supabase.from('portfolio_snapshots').select('*').eq('user_id', uid).order('snapped_at', { ascending:false }).limit(1).single(),
+        supabase.from('users').select('first_name,last_name,email,plan,is_verified,currency').eq('id', uid).single(),
+        supabase.from('portfolio_snapshots').select('*').eq('user_id', uid).order('snapped_at', { ascending:false }).limit(1).maybeSingle(),
         supabase.from('performance_bars').select('period_label,height_pct,is_negative').eq('user_id', uid).order('period_start', { ascending:true }).limit(12),
         supabase.from('open_positions').select('symbol,trade_type,open_price,current_price,profit_loss,status').eq('user_id', uid).eq('status','open').order('opened_at', { ascending:false }).limit(10),
         supabase.from('copy_relationships').select(`allocated_amount,trader_profiles(display_name,handle,initials,color_hex,trader_performance(roi_pct,period))`).eq('copier_id', uid).eq('status','active'),
@@ -1267,10 +1267,17 @@ export default function Dashboard() {
 
       if (!mounted) return;
 
+      const currency   = profile?.currency ?? 'USD';
+      const currSymbol = currency === 'EUR' ? '€' : currency === 'GBP' ? '£' : currency === 'NGN' ? '₦' : '$';
+      const fmtCurr    = (n, decimals = 2) =>
+        `${currSymbol}${Number(n ?? 0).toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}`;
+
       const enrichedUser = {
         ...(profile ?? { first_name: session.user.user_metadata?.first_name ?? '', last_name: session.user.user_metadata?.last_name ?? '', email: session.user.email }),
-        _portfolioVal: snap ? `$${Number(snap.total_value).toLocaleString('en-US', { minimumFractionDigits:2, maximumFractionDigits:2 })}` : '$0.00',
-        _dailyChange:  snap ? `${Number(snap.daily_pnl) >= 0 ? '▲' : '▼'} $${Math.abs(Number(snap.daily_pnl)).toFixed(2)} today` : '',
+        currency,
+        currSymbol,
+        _portfolioVal: snap ? fmtCurr(snap.total_value) : `${currSymbol}0.00`,
+        _dailyChange:  snap ? `${Number(snap.daily_pnl) >= 0 ? '▲' : '▼'} ${fmtCurr(Math.abs(snap.daily_pnl))} today` : '',
       };
 
       setUser(enrichedUser);
@@ -1353,7 +1360,7 @@ export default function Dashboard() {
               </div>
             </div>
 
-            <MetricsGrid snapshot={snapshot} />
+            <MetricsGrid snapshot={snapshot} currSymbol={user?.currSymbol ?? '$'} />
 
             <div className="dashboard-grid">
               <PerformanceCard activeBar={activeBar} onBar={setActiveBar} perfBars={perfBars} snapshot={snapshot} />
