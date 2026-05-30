@@ -1561,7 +1561,7 @@ function AppNav({ onMenuToggle, session, onConnectClick, onDisconnect }) {
         ) : (
           <button className="btn-connect" onClick={onConnectClick}><i className="ti ti-plug"/> Connect Account</button>
         )}
-        <div className="nav-icon-btn"><i className="ti ti-bell"/><span className="nav-ndot"/></div>
+        <div className="nav-icon-btn"><a href='/notification'><i className="ti ti-bell"/><span className="nav-ndot"/></a></div>
         <div className="nav-av">AK</div>
       </div>
     </nav>

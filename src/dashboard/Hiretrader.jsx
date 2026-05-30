@@ -19,6 +19,7 @@ const GLOBAL_CSS = `
     --muted:       #64748b;
     --faint:       #374151;
     --accent:      #c8f560;
+    --accent-rgb:  200,245,96;
     --accent-dim:  rgba(200,245,96,.12);
     --accent-glow: rgba(200,245,96,.06);
     --green:       #34d399;
@@ -570,20 +571,24 @@ function Sidebar({ open, user, onLogout }) {
 }
 
 /* ─── Topbar ──────────────────────────────────────────────────────────────── */
-function Topbar({ onMenu, user }) {
+function Topbar({ onMenu, user, settings }) {
   const firstName = user?.first_name || '';
   const initials  = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : 'TF';
   const hour      = new Date().getHours();
   const greeting  = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const themeIcon = settings?.theme === 'light' ? 'ti-sun' : settings?.theme === 'system' ? 'ti-brightness' : 'ti-moon';
 
   return (
     <div className="ht-topbar">
       <div className="ht-hamburger" onClick={onMenu}><span /><span /><span /></div>
       <div className="ht-topbar-title">{greeting}, <span>{firstName}</span></div>
-      <div className="ht-topbar-icon">
-        <i className="ti ti-bell" /><span className="ht-notif-dot" />
+      <div className="ht-topbar-icon" title={`Theme: ${settings?.theme || 'dark'}`}>
+        <i className={`ti ${themeIcon}`} />
       </div>
-      <div className="ht-topbar-icon"><i className="ti ti-settings" /></div>
+      <div className="ht-topbar-icon">
+        <a href='/notification'><i className="ti ti-bell" /><span className="ht-notif-dot" /></a>
+      </div>
+      <div className="ht-topbar-icon"><a href='/settings'><i className="ti ti-settings" /></a></div>
       <div className="ht-topbar-avatar">{initials}</div>
     </div>
   );
@@ -802,7 +807,7 @@ function RightColumn() {
 }
 
 /* ─── Featured Professionals ─────────────────────────────────────────────── */
-function FeaturedProfessionals({ onHire, userPlan, onUpgrade }) {
+function FeaturedProfessionals({ onHire, userPlan, onUpgrade, settings }) {
   const isBasic = userPlan === 'basic';
   const [traders,  setTraders]  = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -868,7 +873,7 @@ function FeaturedProfessionals({ onHire, userPlan, onUpgrade }) {
           No traders found{filter ? ` for ${filter}` : ''}.
         </div>
       ) : (
-        <div className="ht-traders-grid">
+        <div className="ht-traders-grid" style={{ gap:`var(--density-gap, 14px)` }}>
           {visible.map(t => {
             const perf      = t.trader_performance?.[0] || {};
             const roiPct    = parseFloat(perf.roi_pct   || 0).toFixed(1);
@@ -1048,20 +1053,105 @@ function HireModal({ trader: t, onClose, userId }) {
   );
 }
 
+/* ─── Settings helpers ────────────────────────────────────────────────────── */
+const DENSITY_PADDING = { compact: '12px 16px', comfortable: '18px 20px', spacious: '24px 28px' };
+const DENSITY_GAP     = { compact: '8px',  comfortable: '14px', spacious: '20px' };
+const DENSITY_FONT    = { compact: '13px', comfortable: '14px', spacious: '15px' };
+
+function hexToRgb(hex) {
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return r ? `${parseInt(r[1],16)},${parseInt(r[2],16)},${parseInt(r[3],16)}` : '200,245,96';
+}
+
+function resolveTheme(theme) {
+  if (theme === 'system') {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  return theme || 'dark';
+}
+
+const LIGHT_OVERRIDES = `
+  :root {
+    --bg:         #f0f2f5;
+    --surface:    #ffffff;
+    --surface2:   #f5f7fa;
+    --border:     #e2e6ed;
+    --border2:    #c8cdd8;
+    --text:       #0f1623;
+    --muted:      #64748b;
+    --faint:      #9aa5b4;
+    --accent-glow:rgba(var(--accent-rgb),.06);
+  }
+  body, #root { background: var(--bg); color: var(--text); }
+  .ht-sidebar { background: var(--surface) !important; border-color: var(--border) !important; }
+  .ht-topbar  { background: var(--surface); border-color: var(--border); }
+  .ht-metric, .ht-trader-card, .ht-card, .ht-modal { background: var(--surface); border-color: var(--border); }
+  .ht-filter-select, .ht-input { background: var(--surface2); border-color: var(--border); color: var(--text); }
+  .ht-stat-box { background: var(--surface2); }
+`;
+
+function applySettings(settings, rootEl = document.documentElement) {
+  if (!settings || !rootEl) return;
+  const accent  = settings.accent_color || '#c8f560';
+  const rgb     = hexToRgb(accent);
+  const theme   = resolveTheme(settings.theme);
+  const density = settings.layout_density || 'comfortable';
+
+  rootEl.style.setProperty('--accent',      accent);
+  rootEl.style.setProperty('--accent-rgb',  rgb);
+  rootEl.style.setProperty('--accent-dim',  `rgba(${rgb},.12)`);
+  rootEl.style.setProperty('--accent-glow', `rgba(${rgb},.06)`);
+  rootEl.style.setProperty('--density-pad', DENSITY_PADDING[density] || DENSITY_PADDING.comfortable);
+  rootEl.style.setProperty('--density-gap', DENSITY_GAP[density]     || DENSITY_GAP.comfortable);
+  rootEl.style.fontSize = DENSITY_FONT[density] || '14px';
+
+  return theme;
+}
+
 /* ─── Root ────────────────────────────────────────────────────────────────── */
 export default function HireTrader() {
-  const [user,          setUser]          = useState(null);
-  const [authLoading,   setAuthLoading]   = useState(true);
-  const [sidebarOpen,   setSidebarOpen]   = useState(false);
-  const [modal,         setModal]         = useState(null);
-  const [upgradeOpen,   setUpgradeOpen]   = useState(false);
-  const [upgradeFeature,setUpgradeFeature]= useState('hire');  // 'hire' | 'post'
+  const [user,           setUser]           = useState(null);
+  const [authLoading,    setAuthLoading]    = useState(true);
+  const [sidebarOpen,    setSidebarOpen]    = useState(false);
+  const [modal,          setModal]          = useState(null);
+  const [upgradeOpen,    setUpgradeOpen]    = useState(false);
+  const [upgradeFeature, setUpgradeFeature] = useState('hire');
+  const [settings,       setSettings]       = useState(null);
+  const [activeTheme,    setActiveTheme]    = useState('dark');
   const [metrics,     setMetrics]     = useState([
     { label:'Active Traders', value:'—',    sub:'Loading…',            color:'#c8f560', icon:'ti-users' },
     { label:'Total Return',   value:'—',    sub:'Since account start', color:'#34d399', icon:'ti-trending-up' },
     { label:'Fees Paid',      value:'—',    sub:'This year',           color:'#60a5fa', icon:'ti-receipt' },
     { label:'Avg Win Rate',   value:'—',    sub:'Across hired traders',color:'#a78bfa', icon:'ti-target' },
   ]);
+
+  /* ── Apply CSS vars whenever settings change ── */
+  useEffect(() => {
+    if (!settings) return;
+    const theme = applySettings(settings);
+    setActiveTheme(theme);
+  }, [settings]);
+
+  /* ── Watch system colour-scheme when theme === 'system' ── */
+  useEffect(() => {
+    if (settings?.theme !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const handler = () => setActiveTheme(mq.matches ? 'light' : 'dark');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [settings?.theme]);
+
+  /* ── Fetch user_settings ── */
+  const fetchSettings = useCallback(async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+      if (!error && data) setSettings(data);
+    } catch (_) { /* non-critical */ }
+  }, []);
 
   /* ── Auth: restore session on mount ── */
   useEffect(() => {
@@ -1076,7 +1166,10 @@ export default function HireTrader() {
             .select('balance')
             .eq('user_id', userId).eq('currency', 'USD').single(),
         ]);
-        if (profile) setUser({ ...profile, balance: parseFloat(wallet?.balance ?? 0) || 0.0 });
+        if (profile) {
+          setUser({ ...profile, balance: parseFloat(wallet?.balance ?? 0) || 0.0 });
+          await fetchSettings(userId);
+        }
       }
       setAuthLoading(false);
     });
@@ -1131,7 +1224,7 @@ export default function HireTrader() {
     ]);
   }, [user]);
 
-  useEffect(() => { fetchMetrics(); }, [fetchMetrics]);
+  useEffect(() => { if (user) { fetchMetrics(); fetchSettings(user.id); } }, [fetchMetrics]);
 
   const openUpgrade = (feature = 'hire') => {
     setUpgradeFeature(feature);
@@ -1146,7 +1239,8 @@ export default function HireTrader() {
   if (authLoading) return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
-      <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'#080b10', color:'#64748b', fontSize:14, gap:10 }}>
+      {activeTheme === 'light' && <style dangerouslySetInnerHTML={{ __html: LIGHT_OVERRIDES }} />}
+      <div style={{ height:'100vh', display:'flex', alignItems:'center', justifyContent:'center', background:'var(--bg)', color:'var(--muted)', fontSize:14, gap:10 }}>
         <i className="ti ti-loader-2" style={{ fontSize:20 }} /> Loading…
       </div>
     </>
@@ -1155,6 +1249,7 @@ export default function HireTrader() {
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      {activeTheme === 'light' && <style dangerouslySetInnerHTML={{ __html: LIGHT_OVERRIDES }} />}
 
       {sidebarOpen && (
         <div
@@ -1167,9 +1262,9 @@ export default function HireTrader() {
         <Sidebar open={sidebarOpen} user={user} onLogout={handleLogout} />
 
         <div className="ht-right">
-          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} />
+          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} settings={settings} />
 
-          <main className="ht-main">
+          <main className="ht-main" style={{ padding:`24px var(--density-pad, 28px) 40px` }}>
             <div className="ht-page-header">
               <div>
                 <div className="ht-page-title"><em>Hire a Trader</em></div>
@@ -1188,11 +1283,11 @@ export default function HireTrader() {
               </div>
             </div>
 
-            <div className="ht-metrics">
+            <div className="ht-metrics" style={{ gap:`var(--density-gap, 14px)`, marginBottom:22 }}>
               {metrics.map(m => <MetricCard key={m.label} m={m} />)}
             </div>
 
-            <div className="ht-grid-2">
+            <div className="ht-grid-2" style={{ gap:`var(--density-gap, 18px)`, marginBottom:22 }}>
               <PostRequestForm
                 userId={user?.id}
                 userPlan={user?.plan}
@@ -1205,6 +1300,7 @@ export default function HireTrader() {
               onHire={setModal}
               userPlan={user?.plan}
               onUpgrade={() => openUpgrade('hire')}
+              settings={settings}
             />
           </main>
         </div>

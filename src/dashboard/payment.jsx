@@ -27,6 +27,73 @@ const T = {
   mono:"'JetBrains Mono', monospace",
 };
 
+/* ─── Default user settings (mirrors DB defaults) ───────────────────────────── */
+const DEFAULT_SETTINGS = {
+  theme:                'dark',
+  accent_color:         '#c8f560',
+  layout_density:       'comfortable',
+  chart_type:           'candle',
+  show_volume:          true,
+  show_extended_hours:  false,
+  show_grid_lines:      true,
+  profile_public:       true,
+  show_watchlist:       false,
+  show_activity:        true,
+  show_followed_traders:false,
+  appear_in_search:     true,
+  usage_analytics:      true,
+  personalised_feed:    true,
+  marketing_emails:     false,
+};
+
+/* ─── Derive CSS variable overrides from user settings ───────────────────────── */
+function buildThemeVars(settings) {
+  const s = { ...DEFAULT_SETTINGS, ...settings };
+  const accent = s.accent_color || '#c8f560';
+
+  const hex = accent.replace('#', '');
+  const r   = parseInt(hex.substring(0,2), 16);
+  const g   = parseInt(hex.substring(2,4), 16);
+  const b   = parseInt(hex.substring(4,6), 16);
+
+  const densityMap = {
+    compact:     { mainPad: '14px 18px 32px', metricPad: '12px 14px', topbarH: '52px', sidebarW: '232px' },
+    comfortable: { mainPad: '24px 28px 40px', metricPad: '18px 20px', topbarH: '60px', sidebarW: '256px' },
+    spacious:    { mainPad: '32px 40px 56px', metricPad: '22px 24px', topbarH: '68px', sidebarW: '272px' },
+  };
+  const density = densityMap[s.layout_density] || densityMap.comfortable;
+
+  const isDark = s.theme === 'dark' || (s.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const palette = isDark ? {
+    bg: '#080b10', surface: '#0e1219', surface2: '#141922',
+    border: '#1e2535', border2: '#2a3347',
+    text: '#e2e8f0', muted: '#64748b', faint: '#374151',
+  } : {
+    bg: '#f0f4f8', surface: '#ffffff', surface2: '#f8fafc',
+    border: '#e2e8f0', border2: '#cbd5e1',
+    text: '#0f172a', muted: '#64748b', faint: '#94a3b8',
+  };
+
+  return `
+    --bg:         ${palette.bg};
+    --surface:    ${palette.surface};
+    --surface2:   ${palette.surface2};
+    --border:     ${palette.border};
+    --border2:    ${palette.border2};
+    --text:       ${palette.text};
+    --muted:      ${palette.muted};
+    --faint:      ${palette.faint};
+    --accent:     ${accent};
+    --accent-dim: rgba(${r},${g},${b},.12);
+    --accent-glow:rgba(${r},${g},${b},.06);
+    --sidebar-w:  ${density.sidebarW};
+    --topbar-h:   ${density.topbarH};
+    --main-pad:   ${density.mainPad};
+    --metric-pad: ${density.metricPad};
+  `;
+}
+
 /* ─── Global CSS ─────────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -193,7 +260,7 @@ const GLOBAL_CSS = `
   .in-hamburger span { display: block; width: 20px; height: 2px; background: var(--text); border-radius: 2px; }
 
   /* ── Main ── */
-  .in-main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 24px 28px 40px; }
+  .in-main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--main-pad, 24px 28px 40px); }
 
   /* Page header */
   .in-page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
@@ -247,7 +314,7 @@ const GLOBAL_CSS = `
   .py-metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 24px; }
   .py-metric {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--r-lg); padding: 18px 20px; position: relative; overflow: hidden; transition: all .2s;
+    border-radius: var(--r-lg); padding: var(--metric-pad, 18px 20px); position: relative; overflow: hidden; transition: all .2s;
   }
   .py-metric:hover { border-color: var(--border2); transform: translateY(-1px); }
   .py-metric::before {
@@ -682,7 +749,7 @@ function Topbar({ onMenu, userInitials = 'TF' }) {
       <div className="in-topbar-title">Trade<span>Flow</span></div>
       <div className="in-tb-icon"><i className="ti ti-search" /></div>
       <div className="in-tb-icon">
-        <i className="ti ti-bell" />
+        <a href='/notification'><i className="ti ti-bell" /></a>
         <div className="in-notif-dot" />
       </div>
       <div className="in-tb-avatar">{userInitials}</div>
@@ -1929,6 +1996,9 @@ export default function Payment() {
   // ── User currency ─────────────────────────────────────────
   const [userCurrency, setUserCurrency] = useState('USD');
 
+  // ── User settings ─────────────────────────────────────────
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
+
   const [loading, setLoading] = useState(true);
 
   const loadAll = useCallback(async () => {
@@ -1938,7 +2008,7 @@ export default function Payment() {
       if (!u) { setLoading(false); return; }
       setUser(u);
 
-      const [prof, walletData, metricData, planData, subData, sbData, cur, coins] = await Promise.all([
+      const [prof, walletData, metricData, planData, subData, sbData, cur, coins, { data: userSettings }] = await Promise.all([
         getUserProfile(u.id),
         fetchUserWallets(u.id),
         fetchPaymentMetrics(u.id),
@@ -1947,6 +2017,7 @@ export default function Payment() {
         fetchSidebarData(u.id),
         getUserCurrency(u.id),
         fetchCryptoCoins(),
+        supabase.from('user_settings').select('*').eq('user_id', u.id).single(),
       ]);
 
       setProfile(prof);
@@ -1957,6 +2028,7 @@ export default function Payment() {
       setSidebarData(sbData);
       setUserCurrency(cur);
       setCryptoCoins(coins);
+      if (userSettings) setSettings({ ...DEFAULT_SETTINGS, ...userSettings });
     } catch (e) {
       console.error('Payment loadAll:', e);
     } finally {
@@ -1994,6 +2066,16 @@ export default function Payment() {
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      {/* Per-user theme / density / accent overrides */}
+      <style dangerouslySetInnerHTML={{ __html: `:root { ${buildThemeVars(settings)} }` }} />
+      {/* Grid lines toggle: suppress table row dividers when disabled */}
+      {!settings.show_grid_lines && (
+        <style dangerouslySetInnerHTML={{ __html: `
+          .in-table td, .in-table th { border-bottom-color: transparent !important; }
+          .py-sum-divider { display: none; }
+          .py-plan-divider { display: none; }
+        `}} />
+      )}
 
       {sidebarOpen && (
         <div onClick={() => setSidebarOpen(false)} style={{

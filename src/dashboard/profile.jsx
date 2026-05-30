@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from "../supabase";
 
 /* ─── Design tokens (matches existing site shell) ──────────────────── */
@@ -11,6 +11,87 @@ const T = {
   mono:"'JetBrains Mono', monospace",
 };
 
+/* ─── Default user_settings (mirrors DB defaults) ──────────────────── */
+const DEFAULT_SETTINGS = {
+  theme:                 'dark',
+  accent_color:          '#c8f560',
+  layout_density:        'comfortable',
+  chart_type:            'candle',
+  show_volume:           true,
+  show_extended_hours:   false,
+  show_grid_lines:       true,
+  profile_public:        true,
+  show_watchlist:        false,
+  show_activity:         true,
+  show_followed_traders: false,
+  appear_in_search:      true,
+  usage_analytics:       true,
+  personalised_feed:     true,
+  marketing_emails:      false,
+};
+
+function resolveTheme(theme) {
+  if (theme === 'system')
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return theme;
+}
+
+function buildThemeVars(settings) {
+  const s     = { ...DEFAULT_SETTINGS, ...settings };
+  const theme = resolveTheme(s.theme);
+  const accent = s.accent_color;
+
+  const hex2rgb = h => {
+    const c = h.replace('#', '');
+    return [parseInt(c.slice(0,2),16), parseInt(c.slice(2,4),16), parseInt(c.slice(4,6),16)];
+  };
+  const [ar, ag, ab] = hex2rgb(accent);
+
+  const densityMap = {
+    compact:     { sbW:'220px', mainPad:'16px 20px 32px', cardPad:'12px 16px', gap:'10px' },
+    comfortable: { sbW:'256px', mainPad:'24px 28px 40px', cardPad:'16px 20px', gap:'14px' },
+    spacious:    { sbW:'280px', mainPad:'32px 36px 56px', cardPad:'20px 24px', gap:'20px' },
+  };
+  const d = densityMap[s.layout_density] || densityMap.comfortable;
+
+  const dark = {
+    '--bg':'#080b10','--surface':'#0e1219','--surface2':'#141922',
+    '--border':'#1e2535','--border2':'#2a3347',
+    '--text':'#e2e8f0','--muted':'#64748b','--faint':'#374151','--input-bg':'#141922',
+  };
+  const light = {
+    '--bg':'#f0f4f8','--surface':'#ffffff','--surface2':'#f8fafc',
+    '--border':'#e2e8f0','--border2':'#cbd5e1',
+    '--text':'#0f172a','--muted':'#64748b','--faint':'#94a3b8','--input-bg':'#f1f5f9',
+  };
+
+  return {
+    ...(theme === 'light' ? light : dark),
+    '--accent':      accent,
+    '--accent-dim':  `rgba(${ar},${ag},${ab},.12)`,
+    '--accent-glow': `rgba(${ar},${ag},${ab},.06)`,
+    '--accent-rgb':  `${ar},${ag},${ab}`,
+    '--green':'#34d399','--green-dim':'rgba(52,211,153,.12)',
+    '--red':'#f87171','--red-dim':'rgba(248,113,113,.12)',
+    '--blue':'#60a5fa','--blue-dim':'rgba(96,165,250,.12)',
+    '--purple':'#a78bfa','--purple-dim':'rgba(167,139,250,.12)',
+    '--amber':'#f59e0b','--amber-dim':'rgba(245,158,11,.12)',
+    '--sidebar-w': d.sbW,
+    '--topbar-h':  '60px',
+    '--density-pad':  d.mainPad,
+    '--card-body-pad': d.cardPad,
+    '--grid-gap':  d.gap,
+    '--sans':"'Space Grotesk',sans-serif",
+    '--serif':"'Instrument Serif',serif",
+    '--mono':"'JetBrains Mono',monospace",
+    '--r-sm':'8px','--r-md':'12px','--r-lg':'16px',
+  };
+}
+
+function applyThemeVars(vars) {
+  Object.entries(vars).forEach(([k,v]) => document.documentElement.style.setProperty(k,v));
+}
+
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
   @import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/tabler-icons.min.css');
@@ -19,16 +100,21 @@ const GLOBAL_CSS = `
   html { font-size: 14px; }
 
   :root {
+    /* Injected dynamically by applyThemeVars() from user_settings */
     --bg:#080b10; --surface:#0e1219; --surface2:#141922;
     --border:#1e2535; --border2:#2a3347;
     --text:#e2e8f0; --muted:#64748b; --faint:#374151;
     --accent:#c8f560; --accent-dim:rgba(200,245,96,.12); --accent-glow:rgba(200,245,96,.06);
+    --accent-rgb:200,245,96;
     --green:#34d399; --green-dim:rgba(52,211,153,.12);
     --red:#f87171; --red-dim:rgba(248,113,113,.12);
     --blue:#60a5fa; --blue-dim:rgba(96,165,250,.12);
     --purple:#a78bfa; --purple-dim:rgba(167,139,250,.12);
     --amber:#f59e0b; --amber-dim:rgba(245,158,11,.12);
     --sidebar-w:256px; --topbar-h:60px;
+    --density-pad:24px 28px 40px;
+    --card-body-pad:16px 20px;
+    --grid-gap:14px;
     --sans:'Space Grotesk',sans-serif;
     --serif:'Instrument Serif',serif;
     --mono:'JetBrains Mono',monospace;
@@ -71,7 +157,7 @@ const GLOBAL_CSS = `
   .in-brand-name em { color:var(--accent); font-style:normal; }
 
   /* Portfolio pill */
-  .in-sb-pill { margin:12px 16px; background:var(--accent-dim); border:1px solid rgba(200,245,96,.18); border-radius:var(--r-md); padding:10px 14px; flex-shrink:0; }
+  .in-sb-pill { margin:12px 16px; background:var(--accent-dim); border:1px solid rgba(var(--accent-rgb),.18); border-radius:var(--r-md); padding:10px 14px; flex-shrink:0; }
   .in-sb-pill-label { font-size:10px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; display:flex; align-items:center; gap:6px; }
   .in-live-dot { width:6px; height:6px; background:var(--green); border-radius:50%; animation:in-pulse 2s infinite; flex-shrink:0; }
   @keyframes in-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -99,7 +185,7 @@ const GLOBAL_CSS = `
     background:linear-gradient(135deg,var(--accent) 0%,#78d000 100%);
     color:#000; font-size:12px; font-weight:700;
     display:flex; align-items:center; justify-content:center; flex-shrink:0;
-    box-shadow:0 0 12px rgba(200,245,96,.3);
+    box-shadow:0 0 12px rgba(var(--accent-rgb),.3);
   }
   .in-sb-user-name { font-size:13px; font-weight:700; }
   .in-sb-user-role { font-size:10px; color:var(--accent); margin-top:1px; }
@@ -126,13 +212,13 @@ const GLOBAL_CSS = `
     background:linear-gradient(135deg,var(--accent) 0%,#78d000 100%);
     color:#000; font-size:12px; font-weight:700;
     display:flex; align-items:center; justify-content:center; cursor:pointer;
-    box-shadow:0 0 10px rgba(200,245,96,.25);
+    box-shadow:0 0 10px rgba(var(--accent-rgb),.25);
   }
   .in-hamburger { display:none; flex-direction:column; gap:5px; cursor:pointer; padding:4px; }
   .in-hamburger span { display:block; width:20px; height:2px; background:var(--text); border-radius:2px; }
 
   /* ── Main ── */
-  .in-main { flex:1; overflow-y:auto; overflow-x:hidden; padding:24px 28px 40px; }
+  .in-main { flex:1; overflow-y:auto; overflow-x:hidden; padding:var(--density-pad); }
 
   /* Buttons */
   .in-btn {
@@ -143,7 +229,7 @@ const GLOBAL_CSS = `
   .in-btn-sm { font-size:12px; padding:7px 14px; }
   .in-btn-md { font-size:13px; padding:9px 18px; }
   .in-btn-accent { background:var(--accent); color:#000; }
-  .in-btn-accent:hover { opacity:.88; box-shadow:0 0 20px rgba(200,245,96,.3); }
+  .in-btn-accent:hover { opacity:.88; box-shadow:0 0 20px rgba(var(--accent-rgb),.3); }
   .in-btn-ghost { background:var(--surface2); border:1px solid var(--border); color:var(--text); }
   .in-btn-ghost:hover { border-color:var(--border2); }
   .in-btn-danger { background:var(--red-dim); border:1px solid rgba(248,113,113,.2); color:var(--red); }
@@ -172,14 +258,14 @@ const GLOBAL_CSS = `
   .pf-hero-grid {
     position:absolute; inset:0;
     background-image:
-      linear-gradient(rgba(200,245,96,.04) 1px,transparent 1px),
-      linear-gradient(90deg,rgba(200,245,96,.04) 1px,transparent 1px);
+      linear-gradient(rgba(var(--accent-rgb),.04) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(var(--accent-rgb),.04) 1px,transparent 1px);
     background-size:40px 40px;
   }
   .pf-hero-glow {
     position:absolute; top:-80px; left:50%; transform:translateX(-50%);
     width:500px; height:300px; border-radius:50%;
-    background:radial-gradient(ellipse,rgba(200,245,96,.07) 0%,transparent 70%);
+    background:radial-gradient(ellipse,rgba(var(--accent-rgb),.07) 0%,transparent 70%);
     pointer-events:none;
   }
   .pf-hero-actions { position:absolute; top:16px; right:16px; display:flex; gap:8px; }
@@ -196,7 +282,7 @@ const GLOBAL_CSS = `
     background:linear-gradient(135deg,var(--accent) 0%,#78d000 100%);
     color:#000; font-size:32px; font-weight:700;
     display:flex; align-items:center; justify-content:center;
-    border:3px solid var(--bg); box-shadow:0 0 24px rgba(200,245,96,.35);
+    border:3px solid var(--bg); box-shadow:0 0 24px rgba(var(--accent-rgb),.35);
   }
   .pf-avatar-status {
     position:absolute; bottom:4px; right:4px; width:16px; height:16px;
@@ -210,7 +296,7 @@ const GLOBAL_CSS = `
   .pf-identity-actions { display:flex; gap:8px; padding-bottom:4px; }
 
   /* Account summary cards */
-  .pf-summary-row { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:24px; }
+  .pf-summary-row { display:grid; grid-template-columns:repeat(4,1fr); gap:var(--grid-gap); margin-bottom:24px; }
   .pf-summary-card {
     background:var(--surface); border:1px solid var(--border);
     border-radius:var(--r-lg); padding:16px 18px;
@@ -228,9 +314,9 @@ const GLOBAL_CSS = `
   .pf-summary-sub { font-size:11px; color:var(--muted); }
 
   /* Content layout */
-  .pf-content { display:grid; grid-template-columns:1fr 320px; gap:20px; }
-  .pf-left { display:flex; flex-direction:column; gap:16px; }
-  .pf-right { display:flex; flex-direction:column; gap:16px; }
+  .pf-content { display:grid; grid-template-columns:1fr 320px; gap:var(--grid-gap); }
+  .pf-left { display:flex; flex-direction:column; gap:var(--grid-gap); }
+  .pf-right { display:flex; flex-direction:column; gap:var(--grid-gap); }
 
   /* Section card */
   .pf-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; }
@@ -240,7 +326,7 @@ const GLOBAL_CSS = `
   }
   .pf-card-title { font-size:13px; font-weight:700; display:flex; align-items:center; gap:8px; }
   .pf-card-title i { font-size:16px; color:var(--accent); }
-  .pf-card-body { padding:16px 20px; }
+  .pf-card-body { padding:var(--card-body-pad); }
 
   /* Tabs */
   .pf-tabs { display:flex; gap:4px; }
@@ -307,11 +393,11 @@ const GLOBAL_CSS = `
 
   /* Plan card */
   .pf-plan-card {
-    background:linear-gradient(135deg,rgba(200,245,96,.08) 0%,rgba(200,245,96,.03) 100%);
-    border:1px solid rgba(200,245,96,.2); border-radius:var(--r-md); padding:16px;
+    background:linear-gradient(135deg,rgba(var(--accent-rgb),.08) 0%,rgba(var(--accent-rgb),.03) 100%);
+    border:1px solid rgba(var(--accent-rgb),.2); border-radius:var(--r-md); padding:16px;
     display:flex; align-items:center; gap:14px;
   }
-  .pf-plan-icon { width:40px; height:40px; border-radius:10px; background:var(--accent-dim); border:1px solid rgba(200,245,96,.25); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
+  .pf-plan-icon { width:40px; height:40px; border-radius:10px; background:var(--accent-dim); border:1px solid rgba(var(--accent-rgb),.25); display:flex; align-items:center; justify-content:center; font-size:20px; flex-shrink:0; }
   .pf-plan-name { font-size:14px; font-weight:700; color:var(--accent); margin-bottom:3px; }
   .pf-plan-desc { font-size:11px; color:var(--muted); }
   .pf-plan-upgrade { margin-left:auto; flex-shrink:0; }
@@ -333,7 +419,7 @@ const GLOBAL_CSS = `
   .pf-field { display:flex; flex-direction:column; gap:6px; }
   .pf-field label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); }
   .pf-input {
-    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    background:var(--input-bg, var(--surface2)); border:1px solid var(--border); color:var(--text);
     border-radius:var(--r-sm); padding:9px 12px; font-size:13px; outline:none;
     transition:border-color .15s; width:100%;
   }
@@ -355,7 +441,7 @@ const GLOBAL_CSS = `
     color:var(--muted); background:none; cursor:pointer; border:1px solid transparent; transition:all .15s;
   }
   .pf-period-tab:hover { color:var(--text); }
-  .pf-period-tab.active { color:var(--accent); background:var(--accent-dim); border-color:rgba(200,245,96,.2); }
+  .pf-period-tab.active { color:var(--accent); background:var(--accent-dim); border-color:rgba(var(--accent-rgb),.2); }
   .pf-sparkline { display:flex; align-items:flex-end; gap:3px; height:48px; }
   .pf-spark-bar { flex:1; border-radius:3px 3px 0 0; min-height:4px; transition:opacity .2s; }
   .pf-spark-bar:hover { opacity:.75; }
@@ -503,7 +589,7 @@ function useProfileData() {
       const [
         userRes, subRes, activityRes, watchlistRes,
         followedRes, notifRes, txRes, brokerRes,
-        appsRes, usageRes, perfRes, walletRes,
+        appsRes, usageRes, perfRes, walletRes, settingsRes,
       ] = await Promise.all([
         // 1. User profile
         supabase.from('users').select('*').eq('id', uid).single(),
@@ -584,6 +670,12 @@ function useProfileData() {
           .eq('user_id', uid)
           .eq('currency', 'USD')
           .maybeSingle(),
+
+        // 13. User settings
+        supabase.from('user_settings')
+          .select('*')
+          .eq('user_id', uid)
+          .maybeSingle(),
       ]);
 
       // Check for critical errors
@@ -615,6 +707,7 @@ function useProfileData() {
         usage:        usageRes.data,
         performance:  performanceData,
         wallet:       walletRes.data,
+        settings:     settingsRes.data    || null,
       });
     } catch (e) {
       setError(e.message || 'Failed to load profile');
@@ -690,9 +783,9 @@ function Topbar({ onMenu, user = {}, notifications = [] }) {
       <div className="in-hamburger" onClick={onMenu}><span /><span /><span /></div>
       <div className="in-topbar-title">My <span>Profile</span></div>
       <div className="in-tb-icon"><i className="ti ti-search" /></div>
-      <div className="in-tb-icon">
+      <div className="in-tb-icon"><a href='/notification'>
         <i className="ti ti-bell" />
-        {unread > 0 && <span className="in-notif-dot" />}
+        {unread > 0 && <span className="in-notif-dot" />}</a>
       </div>
       <div className="in-tb-avatar">{ini || '?'}</div>
     </header>
@@ -869,12 +962,39 @@ export default function Profile() {
 
   const { data, loading, error } = useProfileData();
 
+  // user_settings: applied to :root as CSS vars
+  const [userSettings, setUserSettings] = useState(DEFAULT_SETTINGS);
+  const settingsApplied = useRef(false);
+
+  // Sync userSettings from loaded data
+  useEffect(() => {
+    if (data?.settings && !settingsApplied.current) {
+      settingsApplied.current = true;
+      setUserSettings(s => ({ ...s, ...data.settings }));
+    }
+  }, [data?.settings]);
+
+  // Apply CSS vars whenever userSettings change
+  useEffect(() => {
+    applyThemeVars(buildThemeVars(userSettings));
+    if (userSettings.theme === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => applyThemeVars(buildThemeVars(userSettings));
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    }
+  }, [userSettings]);
+
   const TABS = [
-    { key:'activity',      label:'Activity',      icon:'ti-activity'  },
-    { key:'watchlist',     label:'Watchlist',     icon:'ti-eye'       },
-    { key:'notifications', label:'Notifications', icon:'ti-bell'      },
-    { key:'transactions',  label:'Transactions',  icon:'ti-receipt'   },
-  ];
+    { key:'activity',      label:'Activity',      icon:'ti-activity', show: userSettings.show_activity      },
+    { key:'watchlist',     label:'Watchlist',     icon:'ti-eye',      show: userSettings.show_watchlist     },
+    { key:'notifications', label:'Notifications', icon:'ti-bell',     show: true                            },
+    { key:'transactions',  label:'Transactions',  icon:'ti-receipt',  show: true                            },
+  ].filter(t => t.show);
+
+  // If the current active tab was hidden, fall back to first visible tab
+  const visibleTabKeys = TABS.map(t => t.key);
+  const resolvedTab = visibleTabKeys.includes(activeTab) ? activeTab : (visibleTabKeys[0] || 'notifications');
 
   // ── Derived values from live data ──────────────────────────────────
   const user         = data?.user         || {};
@@ -1024,17 +1144,17 @@ export default function Profile() {
                   <div className="pf-card-head">
                     <div className="pf-tabs">
                       {TABS.map(t => (
-                        <button key={t.key} className={`pf-tab${activeTab === t.key ? ' active' : ''}`} onClick={() => setActiveTab(t.key)}>
+                        <button key={t.key} className={`pf-tab${resolvedTab === t.key ? ' active' : ''}`} onClick={() => setActiveTab(t.key)}>
                           <i className={`ti ${t.icon}`} />{t.label}
                         </button>
                       ))}
                     </div>
                   </div>
                   <div className="pf-card-body">
-                    {activeTab === 'activity'      && <ActivityTab      items={data?.activity}      />}
-                    {activeTab === 'watchlist'     && <WatchlistTab     items={data?.watchlist}     />}
-                    {activeTab === 'notifications' && <NotificationsTab items={data?.notifications} />}
-                    {activeTab === 'transactions'  && <TransactionsTab  items={data?.transactions}  />}
+                    {resolvedTab === 'activity'      && <ActivityTab      items={data?.activity}      />}
+                    {resolvedTab === 'watchlist'     && <WatchlistTab     items={data?.watchlist}     />}
+                    {resolvedTab === 'notifications' && <NotificationsTab items={data?.notifications} />}
+                    {resolvedTab === 'transactions'  && <TransactionsTab  items={data?.transactions}  />}
                   </div>
                 </div>
 
@@ -1089,6 +1209,7 @@ export default function Profile() {
                 </div>
 
                 {/* Followed traders */}
+                {userSettings.show_followed_traders && (
                 <div className="pf-card">
                   <div className="pf-card-head">
                     <div className="pf-card-title"><i className="ti ti-users" />Traders You Follow</div>
@@ -1126,6 +1247,7 @@ export default function Profile() {
                     })}
                   </div>
                 </div>
+                )}
 
               </div>
 

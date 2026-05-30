@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import supabase from "../supabase";
 
 const T = {
@@ -10,6 +10,86 @@ const T = {
   mono:"'JetBrains Mono', monospace",
 };
 
+/* ─── Default user_settings (mirrors DB defaults) ──────────────────── */
+const DEFAULT_SETTINGS = {
+  theme:                 'dark',
+  accent_color:          '#c8f560',
+  layout_density:        'comfortable',
+  chart_type:            'candle',
+  show_volume:           true,
+  show_extended_hours:   false,
+  show_grid_lines:       true,
+  profile_public:        true,
+  show_watchlist:        false,
+  show_activity:         true,
+  show_followed_traders: false,
+  appear_in_search:      true,
+  usage_analytics:       true,
+  personalised_feed:     true,
+  marketing_emails:      false,
+};
+
+function resolveTheme(theme) {
+  if (theme === 'system')
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  return theme;
+}
+
+function buildThemeVars(settings) {
+  const s      = { ...DEFAULT_SETTINGS, ...settings };
+  const theme  = resolveTheme(s.theme);
+  const accent = s.accent_color;
+
+  const hex2rgb = h => {
+    const c = h.replace('#', '');
+    return [parseInt(c.slice(0,2),16), parseInt(c.slice(2,4),16), parseInt(c.slice(4,6),16)];
+  };
+  const [ar, ag, ab] = hex2rgb(accent);
+
+  const densityMap = {
+    compact:     { sbW:'220px', mainPad:'16px 20px 32px', gap:'16px' },
+    comfortable: { sbW:'256px', mainPad:'24px 28px 40px', gap:'24px' },
+    spacious:    { sbW:'280px', mainPad:'32px 36px 56px', gap:'32px' },
+  };
+  const d = densityMap[s.layout_density] || densityMap.comfortable;
+
+  const dark = {
+    '--bg':'#080b10','--surface':'#0e1219','--surface2':'#141922',
+    '--border':'#1e2535','--border2':'#2a3347',
+    '--text':'#e2e8f0','--muted':'#64748b','--faint':'#374151','--input-bg':'#141922',
+  };
+  const light = {
+    '--bg':'#f0f4f8','--surface':'#ffffff','--surface2':'#f8fafc',
+    '--border':'#e2e8f0','--border2':'#cbd5e1',
+    '--text':'#0f172a','--muted':'#64748b','--faint':'#94a3b8','--input-bg':'#f1f5f9',
+  };
+
+  return {
+    ...(theme === 'light' ? light : dark),
+    '--accent':      accent,
+    '--accent-dim':  `rgba(${ar},${ag},${ab},.12)`,
+    '--accent-glow': `rgba(${ar},${ag},${ab},.06)`,
+    '--accent-rgb':  `${ar},${ag},${ab}`,
+    '--green':'#34d399','--green-dim':'rgba(52,211,153,.12)',
+    '--red':'#f87171','--red-dim':'rgba(248,113,113,.12)',
+    '--blue':'#60a5fa','--blue-dim':'rgba(96,165,250,.12)',
+    '--purple':'#a78bfa','--purple-dim':'rgba(167,139,250,.12)',
+    '--amber':'#f59e0b','--amber-dim':'rgba(245,158,11,.12)',
+    '--sidebar-w':  d.sbW,
+    '--topbar-h':   '60px',
+    '--density-pad': d.mainPad,
+    '--layout-gap':  d.gap,
+    '--sans':"'Space Grotesk',sans-serif",
+    '--serif':"'Instrument Serif',serif",
+    '--mono':"'JetBrains Mono',monospace",
+    '--r-sm':'8px','--r-md':'12px','--r-lg':'16px',
+  };
+}
+
+function applyThemeVars(vars) {
+  Object.entries(vars).forEach(([k,v]) => document.documentElement.style.setProperty(k,v));
+}
+
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
   @import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/tabler-icons.min.css');
@@ -18,16 +98,20 @@ const GLOBAL_CSS = `
   html { font-size: 14px; }
 
   :root {
+    /* Injected dynamically by applyThemeVars() from user_settings */
     --bg:#080b10; --surface:#0e1219; --surface2:#141922;
     --border:#1e2535; --border2:#2a3347;
     --text:#e2e8f0; --muted:#64748b; --faint:#374151;
     --accent:#c8f560; --accent-dim:rgba(200,245,96,.12); --accent-glow:rgba(200,245,96,.06);
+    --accent-rgb:200,245,96;
     --green:#34d399; --green-dim:rgba(52,211,153,.12);
     --red:#f87171; --red-dim:rgba(248,113,113,.12);
     --blue:#60a5fa; --blue-dim:rgba(96,165,250,.12);
     --purple:#a78bfa; --purple-dim:rgba(167,139,250,.12);
     --amber:#f59e0b; --amber-dim:rgba(245,158,11,.12);
     --sidebar-w:256px; --topbar-h:60px;
+    --density-pad:24px 28px 40px;
+    --layout-gap:24px;
     --sans:'Space Grotesk',sans-serif;
     --serif:'Instrument Serif',serif;
     --mono:'JetBrains Mono',monospace;
@@ -66,7 +150,7 @@ const GLOBAL_CSS = `
   .in-brand-icon i { font-size:18px; color:#000; }
   .in-brand-name { font-size:16px; font-weight:700; }
   .in-brand-name em { color:var(--accent); font-style:normal; }
-  .in-sb-pill { margin:12px 16px; background:var(--accent-dim); border:1px solid rgba(200,245,96,.18); border-radius:var(--r-md); padding:10px 14px; flex-shrink:0; }
+  .in-sb-pill { margin:12px 16px; background:var(--accent-dim); border:1px solid rgba(var(--accent-rgb),.18); border-radius:var(--r-md); padding:10px 14px; flex-shrink:0; }
   .in-sb-pill-label { font-size:10px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:1px; margin-bottom:4px; display:flex; align-items:center; gap:6px; }
   .in-live-dot { width:6px; height:6px; background:var(--green); border-radius:50%; animation:in-pulse 2s infinite; flex-shrink:0; }
   @keyframes in-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
@@ -89,7 +173,7 @@ const GLOBAL_CSS = `
     background:linear-gradient(135deg,var(--accent) 0%,#78d000 100%);
     color:#000; font-size:12px; font-weight:700;
     display:flex; align-items:center; justify-content:center; flex-shrink:0;
-    box-shadow:0 0 12px rgba(200,245,96,.3);
+    box-shadow:0 0 12px rgba(var(--accent-rgb),.3);
   }
   .in-sb-user-name { font-size:13px; font-weight:700; }
   .in-sb-user-role { font-size:10px; color:var(--accent); margin-top:1px; }
@@ -116,13 +200,13 @@ const GLOBAL_CSS = `
     background:linear-gradient(135deg,var(--accent) 0%,#78d000 100%);
     color:#000; font-size:12px; font-weight:700;
     display:flex; align-items:center; justify-content:center; cursor:pointer;
-    box-shadow:0 0 10px rgba(200,245,96,.25);
+    box-shadow:0 0 10px rgba(var(--accent-rgb),.25);
   }
   .in-hamburger { display:none; flex-direction:column; gap:5px; cursor:pointer; padding:4px; }
   .in-hamburger span { display:block; width:20px; height:2px; background:var(--text); border-radius:2px; }
 
   /* Main */
-  .in-main { flex:1; overflow-y:auto; overflow-x:hidden; padding:24px 28px 40px; }
+  .in-main { flex:1; overflow-y:auto; overflow-x:hidden; padding:var(--density-pad); }
 
   /* Shared buttons */
   .in-btn {
@@ -134,7 +218,7 @@ const GLOBAL_CSS = `
   .in-btn-md  { font-size:13px; padding:9px 18px; }
   .in-btn-lg  { font-size:14px; padding:11px 22px; }
   .in-btn-accent { background:var(--accent); color:#000; }
-  .in-btn-accent:hover { opacity:.88; box-shadow:0 0 20px rgba(200,245,96,.3); }
+  .in-btn-accent:hover { opacity:.88; box-shadow:0 0 20px rgba(var(--accent-rgb),.3); }
   .in-btn-ghost { background:var(--surface2); border:1px solid var(--border); color:var(--text); }
   .in-btn-ghost:hover { border-color:var(--border2); }
 
@@ -157,14 +241,14 @@ const GLOBAL_CSS = `
   .sp-hero-grid {
     position:absolute; inset:0; pointer-events:none;
     background-image:
-      linear-gradient(rgba(200,245,96,.04) 1px,transparent 1px),
-      linear-gradient(90deg,rgba(200,245,96,.04) 1px,transparent 1px);
+      linear-gradient(rgba(var(--accent-rgb),.04) 1px,transparent 1px),
+      linear-gradient(90deg,rgba(var(--accent-rgb),.04) 1px,transparent 1px);
     background-size:40px 40px;
   }
   .sp-hero-glow {
     position:absolute; top:-100px; right:-80px; width:400px; height:400px;
     border-radius:50%;
-    background:radial-gradient(ellipse,rgba(200,245,96,.06) 0%,transparent 65%);
+    background:radial-gradient(ellipse,rgba(var(--accent-rgb),.06) 0%,transparent 65%);
     pointer-events:none;
   }
   .sp-hero-content { position:relative; z-index:2; max-width:560px; }
@@ -181,7 +265,7 @@ const GLOBAL_CSS = `
     font-family:var(--sans);
   }
   .sp-search-input::placeholder { color:var(--muted); }
-  .sp-search-input:focus { border-color:var(--accent); background:rgba(200,245,96,.04); }
+  .sp-search-input:focus { border-color:var(--accent); background:rgba(var(--accent-rgb),.04); }
   .sp-search-icon { position:absolute; left:13px; top:50%; transform:translateY(-50%); font-size:16px; color:var(--muted); pointer-events:none; }
   .sp-search-rel { position:relative; flex:1; }
 
@@ -196,14 +280,14 @@ const GLOBAL_CSS = `
   .sp-status-bar span { color:var(--muted); font-weight:400; margin-left:4px; }
 
   /* Quick-action cards */
-  .sp-quick-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; margin-bottom:28px; }
+  .sp-quick-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:var(--layout-gap); margin-bottom:28px; }
   .sp-quick-card {
     background:var(--surface); border:1px solid var(--border);
     border-radius:var(--r-lg); padding:20px; cursor:pointer;
     transition:all .2s; position:relative; overflow:hidden;
   }
   .sp-quick-card:hover { border-color:var(--border2); transform:translateY(-2px); }
-  .sp-quick-card.featured { border-color:rgba(200,245,96,.25); background:linear-gradient(135deg,rgba(200,245,96,.07) 0%,rgba(200,245,96,.02) 100%); }
+  .sp-quick-card.featured { border-color:rgba(var(--accent-rgb),.25); background:linear-gradient(135deg,rgba(var(--accent-rgb),.07) 0%,rgba(var(--accent-rgb),.02) 100%); }
   .sp-quick-card::before {
     content:''; position:absolute; top:0; left:0; right:0; height:1px;
     background:linear-gradient(90deg,transparent,var(--accent),transparent); opacity:.2;
@@ -216,9 +300,9 @@ const GLOBAL_CSS = `
   .sp-quick-card:hover .sp-quick-arrow { color:var(--accent); transform:translate(2px,-2px); }
 
   /* Two-col layout */
-  .sp-layout { display:grid; grid-template-columns:1fr 340px; gap:24px; align-items:start; }
-  .sp-left  { display:flex; flex-direction:column; gap:20px; }
-  .sp-right { display:flex; flex-direction:column; gap:20px; }
+  .sp-layout { display:grid; grid-template-columns:1fr 340px; gap:var(--layout-gap); align-items:start; }
+  .sp-left  { display:flex; flex-direction:column; gap:var(--layout-gap); }
+  .sp-right { display:flex; flex-direction:column; gap:var(--layout-gap); }
 
   /* Section card */
   .sp-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--r-lg); overflow:hidden; }
@@ -259,14 +343,14 @@ const GLOBAL_CSS = `
   .sp-field { display:flex; flex-direction:column; gap:6px; }
   .sp-field-label { font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); }
   .sp-input {
-    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    background:var(--input-bg, var(--surface2)); border:1px solid var(--border); color:var(--text);
     border-radius:var(--r-sm); padding:9px 12px; font-size:13px; outline:none;
     transition:border-color .15s; width:100%; font-family:var(--sans);
   }
   .sp-input:focus { border-color:var(--accent); }
   .sp-textarea { resize:vertical; min-height:100px; }
   .sp-select {
-    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    background:var(--input-bg, var(--surface2)); border:1px solid var(--border); color:var(--text);
     border-radius:var(--r-sm); padding:9px 12px; font-size:13px; outline:none;
     transition:border-color .15s; width:100%; cursor:pointer; font-family:var(--sans);
   }
@@ -491,7 +575,7 @@ function Sidebar({ open }) {
   const pnlLabel  = portfolio
     ? `${dailyPnl >= 0 ? '↑' : '↓'} ${dailyPnl >= 0 ? '+' : ''}${fmtCurrency(dailyPnl, currency)} today (${dailyPct >= 0 ? '+' : ''}${dailyPct.toFixed(2)}%)`
     : '—';
-  const pnlColor  = dailyPnl >= 0 ? T.gn : T.rd;
+  const pnlColor  = dailyPnl >= 0 ? 'var(--green)' : 'var(--red)';
 
   const initials  = profile ? `${profile.first_name[0]}${profile.last_name[0]}` : '—';
   const fullName  = profile ? `${profile.first_name} ${profile.last_name}` : '—';
@@ -536,9 +620,9 @@ function Topbar({ onMenu }) {
       <div className="in-hamburger" onClick={onMenu}><span /><span /><span /></div>
       <div className="in-topbar-title">Help & <span>Support</span></div>
       <div className="in-tb-icon"><i className="ti ti-search" /></div>
-      <div className="in-tb-icon">
+      <div className="in-tb-icon"><a href='/notification'>
         <i className="ti ti-bell" />
-        <span className="in-notif-dot" />
+        <span className="in-notif-dot" /></a>
       </div>
       <div className="in-tb-avatar">AR</div>
     </header>
@@ -665,14 +749,14 @@ function TicketsSection() {
 
   return (
     <div className="sp-card">
-      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:`1px solid ${T.br}` }}>
+      <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 20px', borderBottom:`1px solid var(--border)` }}>
         <div className="sp-card-title"><i className="ti ti-ticket" />Support Tickets</div>
         <button className="in-btn in-btn-accent in-btn-sm" onClick={() => setTab('new')}>
           <i className="ti ti-plus" /> New Ticket
         </button>
       </div>
 
-      <div className="sp-tabs" style={{ borderBottom:`1px solid ${T.br}` }}>
+      <div className="sp-tabs" style={{ borderBottom:`1px solid var(--border)` }}>
         {[
           { key:'tickets', icon:'ti-list',  label:'My Tickets' },
           { key:'new',     icon:'ti-edit',  label:'New Ticket'  },
@@ -686,18 +770,18 @@ function TicketsSection() {
       <div className="sp-card-body">
         {tab === 'tickets' && (
           loading ? (
-            <div style={{ padding:'32px 20px', textAlign:'center', color:T.nt, fontSize:13 }}>
+            <div style={{ padding:'32px 20px', textAlign:'center', color:'var(--muted)', fontSize:13 }}>
               <i className="ti ti-loader-2" style={{ fontSize:22, display:'block', marginBottom:8, animation:'spin 1s linear infinite' }} />
               Loading tickets…
               <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </div>
           ) : error ? (
-            <div style={{ padding:'24px 20px', textAlign:'center', color:T.rd, fontSize:13 }}>
+            <div style={{ padding:'24px 20px', textAlign:'center', color:'var(--red)', fontSize:13 }}>
               <i className="ti ti-alert-circle" style={{ fontSize:20, display:'block', marginBottom:6 }} />
               {error}
             </div>
           ) : tickets.length === 0 ? (
-            <div style={{ padding:'32px 20px', textAlign:'center', color:T.nt, fontSize:13 }}>
+            <div style={{ padding:'32px 20px', textAlign:'center', color:'var(--muted)', fontSize:13 }}>
               <i className="ti ti-inbox" style={{ fontSize:28, display:'block', marginBottom:8 }} />
               No tickets yet. Need help? Open a new ticket.
             </div>
@@ -722,7 +806,7 @@ function TicketsSection() {
                       <span style={{ textTransform:'capitalize' }}>{t.category}</span>
                     </div>
                   </div>
-                  <i className="ti ti-chevron-right" style={{ fontSize:16, color:T.nt, flexShrink:0, marginTop:2 }} />
+                  <i className="ti ti-chevron-right" style={{ fontSize:16, color:'var(--muted)', flexShrink:0, marginTop:2 }} />
                 </div>
               );
             })
@@ -773,13 +857,13 @@ function TicketsSection() {
               />
             </div>
             <div className="sp-field">
-              <div className="sp-field-label">Attachments <span style={{ color:T.nt, fontWeight:400, textTransform:'none', letterSpacing:0 }}>(optional)</span></div>
+              <div className="sp-field-label">Attachments <span style={{ color:'var(--muted)', fontWeight:400, textTransform:'none', letterSpacing:0 }}>(optional)</span></div>
               <div style={{
-                background:T.s2, border:`1px dashed ${T.br2}`, borderRadius:8,
+                background:'var(--surface2)', border:`1px dashed var(--border2)`, borderRadius:8,
                 padding:'20px 16px', textAlign:'center', cursor:'pointer',
               }}>
-                <i className="ti ti-upload" style={{ fontSize:22, color:T.nt, marginBottom:6, display:'block' }} />
-                <div style={{ fontSize:12, color:T.nt }}>Drop files here or click to upload · PNG, JPG, PDF up to 10 MB</div>
+                <i className="ti ti-upload" style={{ fontSize:22, color:'var(--muted)', marginBottom:6, display:'block' }} />
+                <div style={{ fontSize:12, color:'var(--muted)' }}>Drop files here or click to upload · PNG, JPG, PDF up to 10 MB</div>
               </div>
             </div>
             <div style={{ display:'flex', justifyContent:'flex-end', gap:8 }}>
@@ -801,16 +885,16 @@ function TicketsSection() {
         {tab === 'new' && submitted && (
           <div style={{ padding:40, textAlign:'center' }}>
             <div style={{
-              width:56, height:56, borderRadius:'50%', background:T.gd,
-              border:`1px solid rgba(200,245,96,.25)`,
+              width:56, height:56, borderRadius:'50%', background:'var(--accent-dim)',
+              border:`1px solid rgba(var(--accent-rgb),.25)`,
               display:'flex', alignItems:'center', justifyContent:'center',
-              margin:'0 auto 16px', fontSize:26, color:T.g,
+              margin:'0 auto 16px', fontSize:26, color:'var(--accent)',
             }}>
               <i className="ti ti-check" />
             </div>
-            <div style={{ fontFamily:T.serif, fontSize:20, marginBottom:8 }}>Ticket <em style={{ color:T.g, fontStyle:'italic' }}>Submitted</em></div>
-            <div style={{ fontSize:13, color:T.nt, marginBottom:6 }}>Your ticket <span style={{ fontFamily:T.mono, color:T.gr }}>#TF-4822</span> has been received.</div>
-            <div style={{ fontSize:12, color:T.nt, marginBottom:24 }}>Our team typically responds within 4–8 hours on business days.</div>
+            <div style={{ fontFamily:'var(--serif)', fontSize:20, marginBottom:8 }}>Ticket <em style={{ color:'var(--accent)', fontStyle:'italic' }}>Submitted</em></div>
+            <div style={{ fontSize:13, color:'var(--muted)', marginBottom:6 }}>Your ticket <span style={{ fontFamily:'var(--mono)', color:'var(--text)' }}>#TF-4822</span> has been received.</div>
+            <div style={{ fontSize:12, color:'var(--muted)', marginBottom:24 }}>Our team typically responds within 4–8 hours on business days.</div>
             <button className="in-btn in-btn-ghost in-btn-sm" onClick={() => { setTab('tickets'); setSubmitted(false); }}>
               View My Tickets
             </button>
@@ -825,6 +909,38 @@ function TicketsSection() {
 export default function Support() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+
+  // user_settings: fetched once after auth, applied as CSS vars
+  const [userSettings, setUserSettings] = useState(DEFAULT_SETTINGS);
+  const settingsApplied = useRef(false);
+
+  useEffect(() => {
+    async function fetchSettings() {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user || settingsApplied.current) return;
+      const { data } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (data) {
+        settingsApplied.current = true;
+        setUserSettings(s => ({ ...s, ...data }));
+      }
+    }
+    fetchSettings();
+  }, []);
+
+  // Apply CSS vars on :root whenever settings change
+  useEffect(() => {
+    applyThemeVars(buildThemeVars(userSettings));
+    if (userSettings.theme === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => applyThemeVars(buildThemeVars(userSettings));
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    }
+  }, [userSettings]);
 
   return (
     <>
@@ -872,7 +988,7 @@ export default function Support() {
               <div className="sp-status-dot" />
               All systems operational
               <span>· Last checked 3 min ago · </span>
-              <a href="#" style={{ color:T.gn, textDecoration:'underline', fontSize:12 }}>View status page</a>
+              <a href="#" style={{ color:'var(--green)', textDecoration:'underline', fontSize:12 }}>View status page</a>
             </div>
 
             {/* Quick actions */}
@@ -931,7 +1047,7 @@ export default function Support() {
                         {c.badge && (
                           <span className={`in-badge ${c.badgeCol} sp-contact-badge`}>{c.badge}</span>
                         )}
-                        <i className="ti ti-chevron-right" style={{ fontSize:15, color:T.nt, marginLeft:8 }} />
+                        <i className="ti ti-chevron-right" style={{ fontSize:15, color:'var(--muted)', marginLeft:8 }} />
                       </div>
                     ))}
                   </div>
@@ -952,7 +1068,7 @@ export default function Support() {
                           <div className="sp-resource-title">{r.title}</div>
                           <div className="sp-resource-sub">{r.sub}</div>
                         </div>
-                        <i className="ti ti-external-link" style={{ fontSize:14, color:T.nt }} />
+                        <i className="ti ti-external-link" style={{ fontSize:14, color:'var(--muted)' }} />
                       </div>
                     ))}
                   </div>
@@ -970,11 +1086,11 @@ export default function Support() {
                       { day:'Sunday',          hours:'Closed',                 active:false },
                     ].map((h, i) => (
                       <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', fontSize:12 }}>
-                        <span style={{ color:T.nt }}>{h.day}</span>
-                        <span style={{ fontFamily:T.mono, fontWeight:600, color: h.hours === 'Closed' ? T.nt : T.gr }}>{h.hours}</span>
+                        <span style={{ color:'var(--muted)' }}>{h.day}</span>
+                        <span style={{ fontFamily:'var(--mono)', fontWeight:600, color: h.hours === 'Closed' ? 'var(--muted)' : 'var(--text)' }}>{h.hours}</span>
                       </div>
                     ))}
-                    <div style={{ marginTop:4, padding:'10px 12px', background:T.gd, border:`1px solid rgba(200,245,96,.15)`, borderRadius:8, fontSize:11, color:T.g }}>
+                    <div style={{ marginTop:4, padding:'10px 12px', background:'var(--accent-dim)', border:`1px solid rgba(var(--accent-rgb),.15)`, borderRadius:8, fontSize:11, color:'var(--accent)' }}>
                       <i className="ti ti-info-circle" style={{ marginRight:6, fontSize:13, verticalAlign:-2 }} />
                       Elite plan members receive 24/7 priority support.
                     </div>

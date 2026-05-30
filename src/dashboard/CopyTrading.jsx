@@ -54,6 +54,7 @@ const GLOBAL_CSS = `
     --muted:      #64748b;
     --faint:      #374151;
     --accent:     #c8f560;
+    --accent-rgb: 200,245,96;
     --accent-dim: rgba(200,245,96,.12);
     --accent-glow:rgba(200,245,96,.06);
     --green:      #34d399;
@@ -641,17 +642,21 @@ function Sidebar({ open, user, onLogout }) {
 }
 
 /* ─── Topbar ──────────────────────────────────────────────────────────────── */
-function Topbar({ onMenu, user }) {
+function Topbar({ onMenu, user, settings }) {
   const firstName = user?.first_name || 'there';
   const initials = user ? `${user.first_name[0]}${user.last_name[0]}`.toUpperCase() : 'U';
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  const themeIcon = settings?.theme === 'light' ? 'ti-sun' : settings?.theme === 'system' ? 'ti-brightness' : 'ti-moon';
   return (
     <div className="ct-topbar">
       <div className="ct-hamburger" onClick={onMenu}><span /><span /><span /></div>
       <div className="ct-topbar-title">{greeting}, <span>{firstName}</span></div>
-      <div className="ct-topbar-icon"><i className="ti ti-bell" /><span className="ct-notif-dot" /></div>
-      <div className="ct-topbar-icon"><i className="ti ti-settings" /></div>
+      <div className="ct-topbar-icon" title={`Theme: ${settings?.theme || 'dark'}`}>
+        <i className={`ti ${themeIcon}`} />
+      </div>
+      <div className="ct-topbar-icon"><a href='/notification'><i className="ti ti-bell" /><span className="ct-notif-dot" /></a></div>
+      <div className="ct-topbar-icon"><a href='/settings'><i className="ti ti-settings" /></a></div>
       <div className="ct-topbar-avatar">{initials}</div>
     </div>
   );
@@ -672,10 +677,12 @@ function MetricCard({ m }) {
 }
 
 /* ─── Trader Card ─────────────────────────────────────────────────────────── */
-function TraderCard({ t, onCopy, userPlan }) {
+function TraderCard({ t, onCopy, userPlan, settings }) {
   const [hov, setHov] = useState(false);
   const spark = t.perf?.sparkline || [];
   const allowed = canUseCopyTrading(userPlan);
+  const chartLabel = settings?.chart_type ? settings.chart_type.charAt(0).toUpperCase() + settings.chart_type.slice(1) : 'Candle';
+  const showVol = settings ? settings.show_volume : true;
 
   const handleClick = () => {
     if (allowed) onCopy(t);
@@ -695,8 +702,11 @@ function TraderCard({ t, onCopy, userPlan }) {
       </div>
       <div className="ct-trader-name">{t.display_name}</div>
       <div className="ct-trader-handle">{t.handle} · {t.market}</div>
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 12, display:'flex', alignItems:'flex-end', gap:8 }}>
         <Spark data={spark} color={t.color_hex} />
+        {showVol && t.perf?.roi_pct != null && (
+          <span style={{ fontSize:9, color:T.nt, marginBottom:2 }}>{chartLabel}</span>
+        )}
       </div>
       <div className="ct-trader-stats">
         {[
@@ -782,7 +792,7 @@ function CopyingCard({ rel }) {
 }
 
 /* ─── Leaderboard ─────────────────────────────────────────────────────────── */
-function Leaderboard({ traders, onCopy, userPlan }) {
+function Leaderboard({ traders, onCopy, userPlan, settings }) {
   const sorted = [...traders].sort((a, b) => (b.perf?.roi_pct ?? b.roi_pct ?? 0) - (a.perf?.roi_pct ?? a.roi_pct ?? 0));
   const medals = ['🥇','🥈','🥉'];
   const allowed = canUseCopyTrading(userPlan);
@@ -979,20 +989,113 @@ function CopyModal({ trader: t, onClose, userId, userPlan }) {
   );
 }
 
+/* ─── Settings helpers ────────────────────────────────────────────────────── */
+const DENSITY_PADDING = { compact: '12px 16px', comfortable: '18px 20px', spacious: '24px 28px' };
+const DENSITY_GAP     = { compact: '8px',  comfortable: '14px', spacious: '20px' };
+const DENSITY_FONT    = { compact: '13px', comfortable: '14px', spacious: '15px' };
+
+function hexToRgb(hex) {
+  const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return r ? `${parseInt(r[1],16)},${parseInt(r[2],16)},${parseInt(r[3],16)}` : '200,245,96';
+}
+
+function resolveTheme(theme) {
+  if (theme === 'system') {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  }
+  return theme;
+}
+
+const LIGHT_OVERRIDES = `
+  :root {
+    --bg:         #f0f2f5;
+    --surface:    #ffffff;
+    --surface2:   #f5f7fa;
+    --border:     #e2e6ed;
+    --border2:    #c8cdd8;
+    --text:       #0f1623;
+    --muted:      #64748b;
+    --faint:      #9aa5b4;
+    --accent-glow:rgba(var(--accent-rgb),.06);
+  }
+  body, #root { background: var(--bg); color: var(--text); }
+  .ct-sidebar { background: var(--surface) !important; border-color: var(--border) !important; }
+  .ct-topbar  { background: var(--surface); border-color: var(--border); }
+  .ct-metric, .ct-trader-card, .ct-copying-card, .ct-lb-wrap, .ct-modal { background: var(--surface); border-color: var(--border); }
+  .ct-tabs, .ct-select, .ct-input, .ct-login-input { background: var(--surface2); border-color: var(--border); color: var(--text); }
+  .ct-mini-stat { background: var(--surface2); }
+  .ct-table th { background: var(--surface2); }
+  .ct-table tr:hover td { background: var(--surface2); }
+  .ct-login-card { background: var(--surface); border-color: var(--border); }
+  .ct-login-wrap { background: var(--bg); }
+`;
+
+function applySettings(settings, rootEl = document.documentElement) {
+  if (!settings || !rootEl) return;
+  const accent = settings.accent_color || '#c8f560';
+  const rgb    = hexToRgb(accent);
+  const theme  = resolveTheme(settings.theme || 'dark');
+  const density = settings.layout_density || 'comfortable';
+
+  rootEl.style.setProperty('--accent',      accent);
+  rootEl.style.setProperty('--accent-rgb',  rgb);
+  rootEl.style.setProperty('--accent-dim',  `rgba(${rgb},.12)`);
+  rootEl.style.setProperty('--accent-glow', `rgba(${rgb},.06)`);
+
+  // density
+  rootEl.style.setProperty('--density-pad', DENSITY_PADDING[density] || DENSITY_PADDING.comfortable);
+  rootEl.style.setProperty('--density-gap', DENSITY_GAP[density]     || DENSITY_GAP.comfortable);
+  rootEl.style.fontSize = DENSITY_FONT[density] || '14px';
+
+  return theme;
+}
+
 /* ─── Root ────────────────────────────────────────────────────────────────── */
 export default function CopyTrading() {
-  const [user,        setUser]        = useState(null);   // logged-in users row
-  const [authLoading, setAuthLoading] = useState(true);   // initial session check
+  const [user,        setUser]        = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [tab,         setTab]         = useState('top');
   const [modal,       setModal]       = useState(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [filters,     setFilters]     = useState({ market:'', risk:'', sort:'roi' });
+  const [settings,    setSettings]    = useState(null);   // user_settings row
+  const [activeTheme, setActiveTheme] = useState('dark'); // resolved theme
 
   // Data from Supabase
   const [traders,     setTraders]     = useState([]);
   const [copyingRels, setCopyingRels] = useState([]);
   const [dataLoading, setDataLoading] = useState(false);
   const [fetchErr,    setFetchErr]    = useState('');
+
+  /* ── Apply settings to CSS vars whenever settings change ── */
+  useEffect(() => {
+    if (!settings) return;
+    const theme = applySettings(settings);
+    setActiveTheme(theme);
+  }, [settings]);
+
+  /* ── Watch system colour-scheme changes when theme === 'system' ── */
+  useEffect(() => {
+    if (settings?.theme !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: light)');
+    const handler = () => setActiveTheme(mq.matches ? 'light' : 'dark');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [settings?.theme]);
+
+  /* ── Fetch user_settings from Supabase ── */
+  const fetchSettings = useCallback(async (userId) => {
+    try {
+      const { data, error } = await supabase
+        .from('user_settings')
+        .select('*')
+        .eq('user_id', userId)
+        .single();
+      if (!error && data) setSettings(data);
+    } catch (_) {
+      // non-critical; silently fall back to defaults
+    }
+  }, []);
 
   /* ── 1. On mount: restore session ── */
   useEffect(() => {
@@ -1019,16 +1122,18 @@ export default function CopyTrading() {
             ...profile,
             balance: parseFloat(wallet?.balance ?? 0) || 0.0,
           });
+          await fetchSettings(userId);
         }
       }
       setAuthLoading(false);
     });
   }, []);
 
-  /* ── 2. Fetch data whenever the logged-in user changes ── */
+  /* ── 2. Fetch data + settings whenever the logged-in user changes ── */
   useEffect(() => {
     if (!user) return;
     fetchData();
+    fetchSettings(user.id);
   }, [user]);
 
   /* ── Fetch trader_profiles + trader_performance + copy_relationships ── */
@@ -1126,6 +1231,7 @@ export default function CopyTrading() {
     return (
       <>
         <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+        {activeTheme === 'light' && <style dangerouslySetInnerHTML={{ __html: LIGHT_OVERRIDES }} />}
         <div className="ct-loading"><div className="ct-spinner" /><span>Loading…</span></div>
       </>
     );
@@ -1135,7 +1241,8 @@ export default function CopyTrading() {
     return (
       <>
         <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
-        <LoginScreen onLogin={setUser} />
+        {activeTheme === 'light' && <style dangerouslySetInnerHTML={{ __html: LIGHT_OVERRIDES }} />}
+        <LoginScreen onLogin={async (u) => { setUser(u); await fetchSettings(u.id); }} />
       </>
     );
   }
@@ -1143,6 +1250,11 @@ export default function CopyTrading() {
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      {activeTheme === 'light' && <style dangerouslySetInnerHTML={{ __html: LIGHT_OVERRIDES }} />}
+      {/* Grid-lines toggle: hide SVG grid elements when show_grid_lines is false */}
+      {settings?.show_grid_lines === false && (
+        <style dangerouslySetInnerHTML={{ __html: `.recharts-cartesian-grid { display: none; }` }} />
+      )}
 
       {sidebarOpen && (
         <div onClick={() => setSidebarOpen(false)} style={{ position:'fixed', inset:0, background:'rgba(0,0,0,.55)', zIndex:299 }} />
@@ -1152,9 +1264,9 @@ export default function CopyTrading() {
         <Sidebar open={sidebarOpen} user={user} onLogout={handleLogout} />
 
         <div className="ct-right">
-          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} />
+          <Topbar onMenu={() => setSidebarOpen(v => !v)} user={user} settings={settings} />
 
-          <main className="ct-main">
+          <main className="ct-main" style={{ padding: `24px var(--density-pad, 28px) 40px` }}>
             {/* Page header */}
             <div className="ct-page-header">
               <div>
@@ -1178,7 +1290,7 @@ export default function CopyTrading() {
             )}
 
             {/* Metrics */}
-            <div className="ct-metrics">
+            <div className="ct-metrics" style={{ gap: `var(--density-gap, 14px)`, marginBottom: 20 }}>
               {METRICS.map(m => <MetricCard key={m.label} m={m} />)}
             </div>
 
@@ -1228,8 +1340,8 @@ export default function CopyTrading() {
             ) : (
               <>
                 {tab === 'top' && (
-                  <div className="ct-grid-3">
-                    {filtered.map(t => <TraderCard key={t.handle} t={t} onCopy={setModal} userPlan={user?.plan} />)}
+                  <div className="ct-grid-3" style={{ gap: `var(--density-gap, 14px)` }}>
+                    {filtered.map(t => <TraderCard key={t.handle} t={t} onCopy={setModal} userPlan={user?.plan} settings={settings} />)}
                     {filtered.length === 0 && (
                       <div style={{ gridColumn:'1/-1', textAlign:'center', color:T.nt, padding:40, fontSize:13 }}>
                         No traders match those filters.
@@ -1239,7 +1351,7 @@ export default function CopyTrading() {
                 )}
 
                 {tab === 'copying' && (
-                  <div className="ct-grid-3">
+                  <div className="ct-grid-3" style={{ gap: `var(--density-gap, 14px)` }}>
                     {copyingRels.length === 0
                       ? <div style={{ gridColumn:'1/-1', textAlign:'center', color:T.nt, padding:40, fontSize:13 }}>You are not copying any traders yet.</div>
                       : copyingRels.map(rel => <CopyingCard key={rel.id} rel={rel} />)
@@ -1249,7 +1361,7 @@ export default function CopyTrading() {
 
                 {tab === 'leaders' && (
                   <div className="ct-grid-1">
-                    <Leaderboard traders={traders} onCopy={setModal} userPlan={user?.plan} />
+                    <Leaderboard traders={traders} onCopy={setModal} userPlan={user?.plan} settings={settings} />
                   </div>
                 )}
               </>
