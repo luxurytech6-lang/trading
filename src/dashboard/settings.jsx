@@ -303,7 +303,6 @@ const NAV_SECTIONS = [
     label: 'Integrations',
     items: [
       { key: 'connected',    icon: 'ti-plug',           label: 'Connected Apps'  },
-      { key: 'api',          icon: 'ti-code',           label: 'API Access'      },
     ],
   },
 ];
@@ -338,7 +337,7 @@ function useSettingsData() {
         const [
           userRes, subRes, walletRes, settingsRes,
           twoFaRes, sessionsRes, appsRes,
-          apiKeyRes, usageRes, copyRes, notifRes,
+          usageRes, copyRes, notifRes,
         ] = await Promise.all([
           supabase.from('users').select('*').eq('id', uid).single(),
           supabase.from('user_subscriptions')
@@ -356,9 +355,6 @@ function useSettingsData() {
             .order('last_active_at', { ascending: false }).limit(5),
           supabase.from('connected_apps')
             .select('*').eq('user_id', uid),
-          supabase.from('api_keys')
-            .select('*').eq('user_id', uid).eq('is_active', true)
-            .order('created_at', { ascending: false }).limit(1).maybeSingle(),
           supabase.from('usage_metrics')
             .select('*').eq('user_id', uid)
             .order('period_start', { ascending: false }).limit(1).maybeSingle(),
@@ -378,7 +374,6 @@ function useSettingsData() {
           twoFa:       twoFaRes.data    || [],
           sessions:    sessionsRes.data || [],
           apps:        appsRes.data     || [],
-          apiKey:      apiKeyRes.data,
           usage:       usageRes.data,
           copyCount:   (copyRes.data    || []).length,
           unreadCount: (notifRes.data   || []).length,
@@ -604,7 +599,6 @@ function SubscriptionPanel({ subscription, usage }) {
     { label:'Price Alerts',    used: usage?.alerts_used    || 0, total: plan?.max_alerts       || 10,   color:'#c8f560' },
     { label:'Watchlist Spots', used: usage?.watchlist_used || 0, total: plan?.max_watchlist     || 20,   color:'#60a5fa' },
     { label:'Signal Saves',   used: usage?.signal_saves   || 0, total: 20,                              color:'#a78bfa' },
-    { label:'API Calls / day', used: usage?.api_calls      || 0, total: plan?.api_calls_per_day || 0,   color:'#34d399' },
   ];
   return (
     <div className="st-panel">
@@ -690,15 +684,6 @@ function NotificationsPanel() {
       ],
     },
     {
-      title:'Social & Community', icon:'ti-users', desc:'Activity from traders you follow and comments.',
-      rows:[
-        { label:'New Signal Posts', sub:'When followed traders publish a signal',   def:true  },
-        { label:'Comments & Replies', sub:'Replies to your comments on signals',    def:true  },
-        { label:'New Followers', sub:'When someone follows your profile',           def:false },
-        { label:'Trader Milestones', sub:'When a followed trader hits a milestone', def:false },
-      ],
-    },
-    {
       title:'Account & System', icon:'ti-shield', desc:'Security and account status notifications.',
       rows:[
         { label:'Login Activity', sub:'New sign-in from an unrecognised device',    def:true },
@@ -768,16 +753,131 @@ function NotificationsPanel() {
   );
 }
 
+/* ─── Appearance helpers (imported by every page) ───────────────────────────── */
+// Call applyAppearance() once at the top of any page to pick up saved settings.
+export function applyAppearance() {
+  try {
+    const raw = localStorage.getItem('tf_appearance');
+    if (!raw) return;
+    const s = JSON.parse(raw);
+    _applyToDOM(s);
+  } catch (_) {}
+}
+
+function _applyToDOM({ theme, accentColor, density }) {
+  const root = document.documentElement;
+
+  // ── Accent color ──
+  if (accentColor) {
+    // Derive a dimmed version (12% opacity) for backgrounds
+    const hex = accentColor.replace('#','');
+    const r = parseInt(hex.slice(0,2),16);
+    const g = parseInt(hex.slice(2,4),16);
+    const b = parseInt(hex.slice(4,6),16);
+    root.style.setProperty('--accent',       accentColor);
+    root.style.setProperty('--accent-dim',   `rgba(${r},${g},${b},.12)`);
+    root.style.setProperty('--accent-glow',  `rgba(${r},${g},${b},.06)`);
+  }
+
+  // ── Theme ──
+  const effectiveTheme = theme === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : (theme || 'dark');
+
+  if (effectiveTheme === 'light') {
+    root.style.setProperty('--bg',       '#f0f2f5');
+    root.style.setProperty('--surface',  '#ffffff');
+    root.style.setProperty('--surface2', '#f8fafc');
+    root.style.setProperty('--border',   '#e2e8f0');
+    root.style.setProperty('--border2',  '#cbd5e1');
+    root.style.setProperty('--text',     '#0f172a');
+    root.style.setProperty('--muted',    '#64748b');
+    root.style.setProperty('--faint',    '#94a3b8');
+  } else {
+    root.style.setProperty('--bg',       '#080b10');
+    root.style.setProperty('--surface',  '#0e1219');
+    root.style.setProperty('--surface2', '#141922');
+    root.style.setProperty('--border',   '#1e2535');
+    root.style.setProperty('--border2',  '#2a3347');
+    root.style.setProperty('--text',     '#e2e8f0');
+    root.style.setProperty('--muted',    '#64748b');
+    root.style.setProperty('--faint',    '#374151');
+  }
+
+  // ── Density ──
+  const spacingMap = { compact: '20px 22px', comfortable: '26px 28px', spacious: '32px 34px' };
+  const mainPadMap = { compact: '16px 20px 32px', comfortable: '24px 28px 40px', spacious: '32px 36px 56px' };
+  const gapMap     = { compact: '12px', comfortable: '20px', spacious: '28px' };
+  if (density) {
+    root.style.setProperty('--density-padding', spacingMap[density] || spacingMap.comfortable);
+    root.style.setProperty('--density-main-pad', mainPadMap[density] || mainPadMap.comfortable);
+    root.style.setProperty('--density-gap', gapMap[density] || gapMap.comfortable);
+    // Apply to in-main directly if present
+    document.querySelectorAll('.in-main, .sb-main').forEach(el => {
+      el.style.padding = mainPadMap[density];
+    });
+  }
+}
+
+async function _saveAppearance(uid, patch) {
+  // Write CSS vars + localStorage immediately (instant across-page effect)
+  const current = (() => { try { return JSON.parse(localStorage.getItem('tf_appearance') || '{}'); } catch { return {}; } })();
+  const next = { ...current, ...patch };
+  localStorage.setItem('tf_appearance', JSON.stringify(next));
+  _applyToDOM(next);
+
+  // Persist to Supabase in background
+  if (!uid) return;
+  await supabase.from('user_settings').upsert(
+    { user_id: uid, ...patch, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id' }
+  );
+}
+
 function AppearancePanel({ settings = {} }) {
-  const [theme, setTheme] = useState(settings.theme || 'dark');
-  const [density, setDensity] = useState(settings.layout_density || 'comfortable');
-  const [chartStyle, setChartStyle] = useState(settings.chart_type || 'candle');
-  const [accentColor, setAccentColor] = useState(settings.accent_color || '#c8f560');
+  const [theme,       setThemeState]  = useState(settings.theme        || 'dark');
+  const [density,     setDensityState]= useState(settings.layout_density || 'comfortable');
+  const [accentColor, setAccentState] = useState(settings.accent_color || '#c8f560');
+  const [saving,      setSaving]      = useState(false);
+  const [saved,       setSaved]       = useState(false);
+  const uidRef = React.useRef(null);
+
+  // Grab user id once on mount
+  React.useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => { uidRef.current = data?.user?.id || null; });
+    // Also apply whatever is already in localStorage immediately
+    applyAppearance();
+  }, []);
+
+  const persist = async (patch) => {
+    setSaving(true); setSaved(false);
+    await _saveAppearance(uidRef.current, patch);
+    setSaving(false); setSaved(true);
+    setTimeout(() => setSaved(false), 1800);
+  };
+
+  const changeTheme = (t) => { setThemeState(t); persist({ theme: t }); };
+  const changeAccent = (c) => { setAccentState(c); persist({ accent_color: c }); };
+  const changeDensity = (d) => { setDensityState(d); persist({ layout_density: d }); };
 
   const accents = ['#c8f560','#60a5fa','#a78bfa','#34d399','#f59e0b','#f87171'];
 
   return (
     <div className="st-panel">
+
+      {/* Save status bar */}
+      {(saving || saved) && (
+        <div style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 14px',
+          background: saved ? 'rgba(52,211,153,.08)' : 'rgba(200,245,96,.06)',
+          border: `1px solid ${saved ? 'rgba(52,211,153,.2)' : 'rgba(200,245,96,.15)'}`,
+          borderRadius:'var(--r-sm)', fontSize:12 }}>
+          {saving
+            ? <><i className="ti ti-loader-2" style={{ color:T.g, fontSize:14 }} /> Saving…</>
+            : <><i className="ti ti-circle-check" style={{ color:T.gn, fontSize:14 }} /> Applied to all pages</>}
+        </div>
+      )}
+
+      {/* Theme */}
       <div className="st-card">
         <div className="st-card-head">
           <div className="st-card-title"><i className="ti ti-sun" />Theme</div>
@@ -786,11 +886,11 @@ function AppearancePanel({ settings = {} }) {
         <div className="st-card-body">
           <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10 }}>
             {[
-              { key:'dark',   icon:'ti-moon',  label:'Dark'  },
-              { key:'light',  icon:'ti-sun',   label:'Light' },
+              { key:'dark',   icon:'ti-moon',           label:'Dark'   },
+              { key:'light',  icon:'ti-sun',            label:'Light'  },
               { key:'system', icon:'ti-device-desktop', label:'System' },
             ].map(t => (
-              <button key={t.key} onClick={() => setTheme(t.key)} style={{
+              <button key={t.key} onClick={() => changeTheme(t.key)} style={{
                 background: theme === t.key ? T.gd : T.s2,
                 border: `1px solid ${theme === t.key ? 'rgba(200,245,96,.3)' : T.br}`,
                 borderRadius:12, padding:'14px 10px', cursor:'pointer',
@@ -805,24 +905,32 @@ function AppearancePanel({ settings = {} }) {
         </div>
       </div>
 
+      {/* Accent Color */}
       <div className="st-card">
         <div className="st-card-head">
           <div className="st-card-title"><i className="ti ti-palette" />Accent Color</div>
-          <div className="st-card-desc">Personalise your highlight color.</div>
+          <div className="st-card-desc">Personalise your highlight color. Changes apply across all pages instantly.</div>
         </div>
         <div className="st-card-body">
-          <div style={{ display:'flex', gap:10 }}>
+          <div style={{ display:'flex', gap:10, flexWrap:'wrap' }}>
             {accents.map(c => (
-              <button key={c} onClick={() => setAccentColor(c)} style={{
+              <button key={c} onClick={() => changeAccent(c)} style={{
                 width:34, height:34, borderRadius:'50%', background:c, border:'none',
-                cursor:'pointer', outline: accentColor === c ? `3px solid ${c}` : 'none',
+                cursor:'pointer',
+                outline: accentColor === c ? `3px solid ${c}` : 'none',
                 outlineOffset:3, transition:'outline .15s',
+                boxShadow: accentColor === c ? `0 0 12px ${c}55` : 'none',
               }} />
             ))}
+          </div>
+          <div style={{ fontSize:11, color:T.nt, marginTop:4, display:'flex', alignItems:'center', gap:5 }}>
+            <i className="ti ti-info-circle" style={{ fontSize:12 }} />
+            Selected: <span style={{ fontFamily:T.mono, color:accentColor }}>{accentColor}</span>
           </div>
         </div>
       </div>
 
+      {/* Layout Density */}
       <div className="st-card">
         <div className="st-card-head">
           <div className="st-card-title"><i className="ti ti-layout" />Layout Density</div>
@@ -835,7 +943,7 @@ function AppearancePanel({ settings = {} }) {
               { key:'comfortable', label:'Comfortable', sub:'Default' },
               { key:'spacious',    label:'Spacious',    sub:'More breathing room' },
             ].map(d => (
-              <button key={d.key} onClick={() => setDensity(d.key)} style={{
+              <button key={d.key} onClick={() => changeDensity(d.key)} style={{
                 background: density === d.key ? T.gd : T.s2,
                 border: `1px solid ${density === d.key ? 'rgba(200,245,96,.3)' : T.br}`,
                 borderRadius:10, padding:'12px', cursor:'pointer', textAlign:'left', transition:'all .15s',
@@ -848,38 +956,6 @@ function AppearancePanel({ settings = {} }) {
         </div>
       </div>
 
-      <div className="st-card">
-        <div className="st-card-head">
-          <div className="st-card-title"><i className="ti ti-chart-candle" />Chart Preferences</div>
-          <div className="st-card-desc">Default chart display settings.</div>
-        </div>
-        <div className="st-card-body">
-          {[
-            { label:'Default Chart Type', sub:'How charts render by default', control:(
-              <select className="st-select" value={chartStyle} onChange={e => setChartStyle(e.target.value)}>
-                <option value="candle">Candlestick</option>
-                <option value="line">Line</option>
-                <option value="bar">Bar</option>
-                <option value="area">Area</option>
-              </select>
-            )},
-            { label:'Show Volume Bars', sub:'Display volume below price chart', control:<Toggle defaultChecked={settings.show_volume ?? true} /> },
-            { label:'Extended Hours',   sub:'Show pre- and after-market data',   control:<Toggle defaultChecked={settings.show_extended_hours ?? false} /> },
-            { label:'Grid Lines',       sub:'Show background grid on charts',    control:<Toggle defaultChecked={settings.show_grid_lines ?? true} /> },
-          ].map((r, i) => (
-            <React.Fragment key={r.label}>
-              {i > 0 && <div className="st-divider" />}
-              <div className="st-row">
-                <div className="st-row-info">
-                  <div className="st-row-label">{r.label}</div>
-                  <div className="st-row-sub">{r.sub}</div>
-                </div>
-                {r.control}
-              </div>
-            </React.Fragment>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }
@@ -1045,92 +1121,6 @@ function ConnectedPanel({ apps = [] }) {
   );
 }
 
-function ApiPanel({ apiKey, usage }) {
-  const [showKey, setShowKey] = useState(false);
-  const KEY = apiKey ? `tf_live_sk_${apiKey.key_hash?.slice(0,16)}...` : '—';
-  const MASKED = '••••••••••••••••••••••••••••';
-  return (
-    <div className="st-panel">
-      <div className="st-card">
-        <div className="st-card-head">
-          <div className="st-card-title"><i className="ti ti-code" />API Key</div>
-          <div className="st-card-desc">Use your API key to access TradeFlow data programmatically.</div>
-        </div>
-        <div className="st-card-body">
-          <div className="st-input-group">
-            <div className="st-input-label">Live API Key</div>
-            <div style={{ display:'flex', gap:8 }}>
-              <input className="st-input" readOnly value={showKey ? KEY : MASKED} style={{ fontFamily:T.mono, fontSize:12 }} />
-              <button className="in-btn in-btn-ghost in-btn-sm" style={{ flexShrink:0 }} onClick={() => setShowKey(v => !v)}>
-                <i className={`ti ${showKey ? 'ti-eye-off' : 'ti-eye'}`} />
-              </button>
-              <button className="in-btn in-btn-ghost in-btn-sm" style={{ flexShrink:0 }}><i className="ti ti-copy" /></button>
-            </div>
-          </div>
-          <div style={{ display:'flex', gap:8 }}>
-            <button className="in-btn in-btn-ghost in-btn-sm"><i className="ti ti-refresh" /> Regenerate Key</button>
-          </div>
-          <div className="st-alert st-alert-warn">
-            <i className="ti ti-alert-triangle" />
-            Never share your API key. Regenerating will immediately invalidate the old key.
-          </div>
-        </div>
-      </div>
-
-      <div className="st-card">
-        <div className="st-card-head">
-          <div className="st-card-title"><i className="ti ti-chart-bar" />API Usage</div>
-          <div className="st-card-desc">Requests made in the last 30 days.</div>
-        </div>
-        <div className="st-card-body">
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12 }}>
-            {[
-              { label:'Calls today',      val: apiKey ? String(apiKey.calls_today ?? 0)                 : '—', sub:`of ${(apiKey?.calls_today ?? 0) > 0 ? '2,000' : '—'} limit`, col:T.g  },
-              { label:'Calls this month',  val: apiKey ? (apiKey.calls_this_month ?? 0).toLocaleString() : '—', sub:'of 60,000 limit', col:T.bl },
-              { label:'Avg latency',       val: apiKey?.avg_latency_ms ? `${apiKey.avg_latency_ms}ms` : '—', sub:'Last 7 days', col:T.gn },
-            ].map(s => (
-              <div key={s.label} style={{ background:T.s2, border:`1px solid ${T.br}`, borderRadius:10, padding:'12px 14px' }}>
-                <div style={{ fontSize:9, fontWeight:700, textTransform:'uppercase', letterSpacing:1, color:T.nt, marginBottom:6 }}>{s.label}</div>
-                <div style={{ fontFamily:T.mono, fontSize:18, fontWeight:700, color:s.col, marginBottom:3 }}>{s.val}</div>
-                <div style={{ fontSize:10, color:T.nt }}>{s.sub}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      <div className="st-card">
-        <div className="st-card-head">
-          <div className="st-card-title"><i className="ti ti-book" />Documentation</div>
-          <div className="st-card-desc">Resources to get started with the API.</div>
-        </div>
-        <div className="st-card-body" style={{ gap:10 }}>
-          {[
-            { icon:'ti-file-text', label:'API Reference', sub:'Full endpoint documentation' },
-            { icon:'ti-code',      label:'Code Examples', sub:'Sample code in Python, JS, and more' },
-            { icon:'ti-brand-github', label:'SDKs on GitHub', sub:'Official client libraries' },
-          ].map((d, i) => (
-            <a key={i} href="#" style={{
-              display:'flex', alignItems:'center', gap:12,
-              background:T.s2, border:`1px solid ${T.br}`, borderRadius:10,
-              padding:'12px 14px', transition:'border-color .15s',
-            }}>
-              <div style={{ width:32, height:32, borderRadius:8, background:T.gd, display:'flex', alignItems:'center', justifyContent:'center', fontSize:16, color:T.g }}>
-                <i className={`ti ${d.icon}`} />
-              </div>
-              <div style={{ flex:1 }}>
-                <div style={{ fontSize:13, fontWeight:600, marginBottom:2 }}>{d.label}</div>
-                <div style={{ fontSize:11, color:T.nt }}>{d.sub}</div>
-              </div>
-              <i className="ti ti-external-link" style={{ fontSize:15, color:T.nt }} />
-            </a>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ─── Sidebar & Topbar ──────────────────────────────── */
 function Sidebar({ open, user = {}, sub, wallet, copyCount = 0 }) {
   const plan      = sub?.subscription_plans;
@@ -1191,9 +1181,9 @@ function Topbar({ onMenu, user = {}, unreadCount = 0 }) {
       <div className="in-hamburger" onClick={onMenu}><span /><span /><span /></div>
       <div className="in-topbar-title">Account <span>Settings</span></div>
       <div className="in-tb-icon"><i className="ti ti-search" /></div>
-      <div className="in-tb-icon">
+      <div className="in-tb-icon"><a href='/notification'>
         <i className="ti ti-bell" />
-        {unreadCount > 0 && <span className="in-notif-dot" />}
+        {unreadCount > 0 && <span className="in-notif-dot" />}</a>
       </div>
       <div className="in-tb-avatar">{ini || '?'}</div>
     </header>
@@ -1204,6 +1194,9 @@ function Topbar({ onMenu, user = {}, unreadCount = 0 }) {
 export default function Settings() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [activeSection, setActiveSection] = useState('profile');
+
+  // Apply saved appearance settings on mount (accent, theme, density)
+  React.useEffect(() => { applyAppearance(); }, []);
 
   const { data, loading, error } = useSettingsData();
 
@@ -1219,7 +1212,6 @@ export default function Settings() {
     appearance:    <AppearancePanel settings={settings} />,
     privacy:       <PrivacyPanel settings={settings} />,
     connected:     <ConnectedPanel apps={data?.apps || []} />,
-    api:           <ApiPanel apiKey={data?.apiKey} usage={data?.usage} />,
   };
 
   if (loading) return (

@@ -11,6 +11,73 @@ const T = {
   mono:"'JetBrains Mono', monospace",
 };
 
+/* ─── Default user settings (mirrors DB defaults) ───────────────────────────── */
+const DEFAULT_SETTINGS = {
+  theme:                'dark',
+  accent_color:         '#c8f560',
+  layout_density:       'comfortable',
+  chart_type:           'candle',
+  show_volume:          true,
+  show_extended_hours:  false,
+  show_grid_lines:      true,
+  profile_public:       true,
+  show_watchlist:       false,
+  show_activity:        true,
+  show_followed_traders:false,
+  appear_in_search:     true,
+  usage_analytics:      true,
+  personalised_feed:    true,
+  marketing_emails:     false,
+};
+
+/* ─── Derive CSS variable overrides from user settings ───────────────────────── */
+function buildThemeVars(settings) {
+  const s = { ...DEFAULT_SETTINGS, ...settings };
+  const accent = s.accent_color || '#c8f560';
+
+  const hex = accent.replace('#', '');
+  const r   = parseInt(hex.substring(0,2), 16);
+  const g   = parseInt(hex.substring(2,4), 16);
+  const b   = parseInt(hex.substring(4,6), 16);
+
+  const densityMap = {
+    compact:     { mainPad: '14px 18px 32px', metricPad: '12px 14px', topbarH: '52px', sidebarW: '232px' },
+    comfortable: { mainPad: '24px 28px 40px', metricPad: '18px 20px', topbarH: '60px', sidebarW: '256px' },
+    spacious:    { mainPad: '32px 40px 56px', metricPad: '22px 24px', topbarH: '68px', sidebarW: '272px' },
+  };
+  const density = densityMap[s.layout_density] || densityMap.comfortable;
+
+  const isDark = s.theme === 'dark' || (s.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const palette = isDark ? {
+    bg: '#080b10', surface: '#0e1219', surface2: '#141922',
+    border: '#1e2535', border2: '#2a3347',
+    text: '#e2e8f0', muted: '#64748b', faint: '#374151',
+  } : {
+    bg: '#f0f4f8', surface: '#ffffff', surface2: '#f8fafc',
+    border: '#e2e8f0', border2: '#cbd5e1',
+    text: '#0f172a', muted: '#64748b', faint: '#94a3b8',
+  };
+
+  return `
+    --bg:         ${palette.bg};
+    --surface:    ${palette.surface};
+    --surface2:   ${palette.surface2};
+    --border:     ${palette.border};
+    --border2:    ${palette.border2};
+    --text:       ${palette.text};
+    --muted:      ${palette.muted};
+    --faint:      ${palette.faint};
+    --accent:     ${accent};
+    --accent-dim: rgba(${r},${g},${b},.12);
+    --accent-glow:rgba(${r},${g},${b},.06);
+    --sidebar-w:  ${density.sidebarW};
+    --topbar-h:   ${density.topbarH};
+    --main-pad:   ${density.mainPad};
+    --metric-pad: ${density.metricPad};
+  `;
+}
+
 /* ─── Global CSS ─────────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -121,7 +188,7 @@ const GLOBAL_CSS = `
   .in-hamburger span { display: block; width: 20px; height: 2px; background: var(--text); border-radius: 2px; }
 
   /* ── Main ── */
-  .in-main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 24px 28px 40px; }
+  .in-main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--main-pad, 24px 28px 40px); }
   .in-page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
   .in-page-title { font-family: var(--serif); font-size: 28px; color: var(--text); line-height: 1.2; }
   .in-page-title em { color: var(--accent); font-style: italic; }
@@ -152,7 +219,7 @@ const GLOBAL_CSS = `
 
   /* ── Metrics ── */
   .nt-metrics { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; margin-bottom: 24px; }
-  .nt-metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 18px 20px; position: relative; overflow: hidden; transition: all .2s; }
+  .nt-metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--metric-pad, 18px 20px); position: relative; overflow: hidden; transition: all .2s; }
   .nt-metric:hover { border-color: var(--border2); transform: translateY(-1px); }
   .nt-metric::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%); opacity: .3; }
   .nt-metric-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 12px; }
@@ -514,15 +581,20 @@ function Toggle({ on, onChange }) {
 }
 
 /* ── Heatmap ── */
-function Heatmap({ heatData = new Array(28).fill(0) }) {
+function Heatmap({ heatData = new Array(28).fill(0), accentColor = '#c8f560' }) {
   const days = ['M','T','W','T','F','S','S'];
   const max = Math.max(...heatData, 1);
+  // Parse accent hex → rgba for heat cells
+  const hex = (accentColor || '#c8f560').replace('#', '');
+  const hr = parseInt(hex.substring(0,2), 16);
+  const hg = parseInt(hex.substring(2,4), 16);
+  const hb = parseInt(hex.substring(4,6), 16);
   const getColor = (v) => {
     if (v === 0) return 'var(--surface2)';
     const t = v / max;
-    if (t < 0.33) return 'rgba(200,245,96,.2)';
-    if (t < 0.66) return 'rgba(200,245,96,.5)';
-    return 'rgba(200,245,96,.85)';
+    if (t < 0.33) return `rgba(${hr},${hg},${hb},.2)`;
+    if (t < 0.66) return `rgba(${hr},${hg},${hb},.5)`;
+    return `rgba(${hr},${hg},${hb},.85)`;
   };
   return (
     <div className="nt-heatmap-card">
@@ -536,7 +608,7 @@ function Heatmap({ heatData = new Array(28).fill(0) }) {
       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 10, justifyContent: 'flex-end' }}>
         <span style={{ fontSize: 9, color: T.nt }}>Less</span>
         {[0, 0.25, 0.5, 0.75, 1].map(t => (
-          <div key={t} style={{ width: 10, height: 10, borderRadius: 3, background: t === 0 ? 'var(--surface2)' : `rgba(200,245,96,${t * 0.85})` }} />
+          <div key={t} style={{ width: 10, height: 10, borderRadius: 3, background: t === 0 ? 'var(--surface2)' : `rgba(${hr},${hg},${hb},${t * 0.85})` }} />
         ))}
         <span style={{ fontSize: 9, color: T.nt }}>More</span>
       </div>
@@ -635,7 +707,7 @@ function QuietHours() {
 }
 
 /* ── Feed Panel ── */
-function FeedPanel({ filterCat, notifications, loading, onMarkRead, onDismiss, onMarkAllRead, onClearAll, heatData }) {
+function FeedPanel({ filterCat, notifications, loading, onMarkRead, onDismiss, onMarkAllRead, onClearAll, heatData, accentColor = '#c8f560' }) {
   const visible = notifications.filter(n => {
     if (filterCat !== 'all' && n.cat !== filterCat) return false;
     return true;
@@ -733,7 +805,7 @@ function FeedPanel({ filterCat, notifications, loading, onMarkRead, onDismiss, o
 
         {/* Right panel */}
         <div className="nt-panel">
-          <Heatmap heatData={heatData} />
+          <Heatmap heatData={heatData} accentColor={accentColor} />
           <Breakdown notifications={notifications} />
           <QuietHours />
         </div>
@@ -743,7 +815,7 @@ function FeedPanel({ filterCat, notifications, loading, onMarkRead, onDismiss, o
 }
 
 /* ── Settings Panel ── */
-function SettingsPanel() {
+function SettingsPanel({ settings = DEFAULT_SETTINGS }) {
   const [states, setStates] = useState(() => {
     const init = {};
     PREF_SETTINGS.forEach(card => {
@@ -813,6 +885,37 @@ function SettingsPanel() {
         ))}
       </div>
 
+      {/* Applied user_settings info */}
+      <div style={{
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 'var(--r-lg)', padding: '16px 20px', marginTop: 16,
+        display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '1px', color: 'var(--muted)', marginRight: 4 }}>
+          <i className="ti ti-settings" style={{ marginRight: 5 }} />Active App Settings
+        </span>
+        {[
+          { label: 'Activity Feed',     on: settings.show_activity },
+          { label: 'Personalised Feed', on: settings.personalised_feed },
+          { label: 'Marketing Emails',  on: settings.marketing_emails },
+          { label: 'Show Watchlist',    on: settings.show_watchlist },
+        ].map(({ label, on }) => (
+          <span key={label} style={{
+            fontSize: 10, fontWeight: 700, padding: '3px 9px', borderRadius: 5,
+            background: on ? 'var(--accent-dim)' : 'rgba(100,116,139,.1)',
+            color: on ? 'var(--accent)' : 'var(--muted)',
+            border: `1px solid ${on ? 'rgba(var(--accent),.2)' : 'transparent'}`,
+          }}>
+            <i className={`ti ${on ? 'ti-check' : 'ti-x'}`} style={{ fontSize: 9, marginRight: 4 }} />
+            {label}
+          </span>
+        ))}
+        <span style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--muted)' }}>
+          Theme: <strong style={{ color: 'var(--accent)' }}>{settings.theme}</strong>
+          {' · '}Density: <strong style={{ color: 'var(--accent)' }}>{settings.layout_density}</strong>
+        </span>
+      </div>
+
       {/* Save bar */}
       <div style={{ marginTop: 20, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 10 }}>
         <button className="in-btn in-btn-ghost in-btn-sm">Reset to defaults</button>
@@ -832,6 +935,7 @@ export default function Notifications() {
   // ── User & Wallet state ───────────────────────────────────────────────────── //
   const [user, setUser] = useState(null);
   const [wallet, setWallet] = useState(null);
+  const [settings, setSettings] = useState(DEFAULT_SETTINGS);
 
   // ── Notifications state ───────────────────────────────────────────────────── //
   const [notifications, setNotifications] = useState([]);
@@ -850,7 +954,6 @@ export default function Notifications() {
         .eq('user_id', authUser.id)
         .eq('currency', currency)
         .maybeSingle();
-      // If no wallet row exists yet, show 0 balance with the user's currency
       setWallet(data || { balance: 0, currency });
     } catch { setWallet({ balance: 0, currency: userCurrency || 'USD' }); }
   }
@@ -884,20 +987,28 @@ export default function Notifications() {
   }
 
   useEffect(() => {
-    // Fetch user first so we have their currency, then fetch their wallet
+    // Fetch user, wallet, settings in parallel
     (async () => {
       try {
         const { data: { user: authUser } } = await supabase.auth.getUser();
         if (!authUser) return;
-        const { data: userData } = await supabase
-          .from('users')
-          .select('id, first_name, last_name, plan, is_verified, currency, avatar_url, handle')
-          .eq('id', authUser.id)
-          .single();
+        const [{ data: userData }, { data: userSettings }] = await Promise.all([
+          supabase
+            .from('users')
+            .select('id, first_name, last_name, plan, is_verified, currency, avatar_url, handle')
+            .eq('id', authUser.id)
+            .single(),
+          supabase
+            .from('user_settings')
+            .select('*')
+            .eq('user_id', authUser.id)
+            .single(),
+        ]);
         if (userData) {
           setUser(userData);
           await fetchWallet(userData.currency);
         }
+        if (userSettings) setSettings({ ...DEFAULT_SETTINGS, ...userSettings });
       } catch { /* ignore */ }
     })();
     fetchNotifications();
@@ -944,9 +1055,21 @@ export default function Notifications() {
     { key: 'settings', label: 'Settings', icon: 'ti-adjustments-horizontal',    count: null },
   ];
 
+  const dynamicVars = buildThemeVars(settings);
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      {/* Per-user theme / density / accent overrides */}
+      <style dangerouslySetInnerHTML={{ __html: `:root { ${dynamicVars} }` }} />
+      {/* Grid lines toggle */}
+      {!settings.show_grid_lines && (
+        <style dangerouslySetInnerHTML={{ __html: `
+          .nt-cat-bar-wrap { display: none; }
+          .nt-setting-row { border-bottom-color: transparent !important; }
+          .nt-group-label::after { display: none; }
+        `}} />
+      )}
 
       {sidebarOpen && (
         <div onClick={() => setSidebarOpen(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 299 }} />
@@ -1022,7 +1145,7 @@ export default function Notifications() {
 
             {/* Content */}
             {tab === 'settings'
-              ? <SettingsPanel />
+              ? <SettingsPanel settings={settings} />
               : <FeedPanel
                   filterCat={tab}
                   notifications={notifications}
@@ -1032,6 +1155,7 @@ export default function Notifications() {
                   onDismiss={handleDismiss}
                   onMarkAllRead={handleMarkAllRead}
                   onClearAll={handleClearAll}
+                  accentColor={settings.show_activity ? (settings.accent_color || '#c8f560') : '#64748b'}
                 />
             }
           </main>

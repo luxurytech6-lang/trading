@@ -21,6 +21,7 @@ import Settings         from './dashboard/settings';
 import Support          from './dashboard/support';
 import Payment          from './dashboard/payment';
 import Notifications    from './dashboard/notification';
+import Subscription from './dashboard/subscription';
 
 function App() {
   return (
@@ -43,6 +44,7 @@ function App() {
         <Route path="/support"      element={<Support />} />
         <Route path="/payments"     element={<Payment />} />
         <Route path="/notification" element={<Notifications />} />
+        <Route path='/billing' element={<Subscription />} />
       </Routes>
     </Router>
   );

@@ -1,6 +1,58 @@
 import { useState, useEffect } from "react";
 import supabase from "../supabase";
 
+
+/* ─── Apply saved appearance settings from localStorage / user_settings ──────── */
+function applyAppearance(s = null) {
+  try {
+    const data = s || JSON.parse(localStorage.getItem('tf_appearance') || '{}');
+    if (!data || !Object.keys(data).length) return;
+    const root = document.documentElement;
+
+    // Accent colour
+    if (data.accent_color || data.accentColor) {
+      const hex = (data.accent_color || data.accentColor).replace('#', '');
+      const r = parseInt(hex.slice(0,2),16), g = parseInt(hex.slice(2,4),16), b = parseInt(hex.slice(4,6),16);
+      const accent = data.accent_color || data.accentColor;
+      root.style.setProperty('--accent',      accent);
+      root.style.setProperty('--accent-dim',  `rgba(${r},${g},${b},.12)`);
+      root.style.setProperty('--accent-glow', `rgba(${r},${g},${b},.06)`);
+    }
+
+    // Theme
+    const theme = data.theme || 'dark';
+    const effective = theme === 'system'
+      ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+      : theme;
+    if (effective === 'light') {
+      root.style.setProperty('--bg',       '#f0f2f5');
+      root.style.setProperty('--surface',  '#ffffff');
+      root.style.setProperty('--surface2', '#f8fafc');
+      root.style.setProperty('--border',   '#e2e8f0');
+      root.style.setProperty('--border2',  '#cbd5e1');
+      root.style.setProperty('--text',     '#0f172a');
+      root.style.setProperty('--muted',    '#64748b');
+      root.style.setProperty('--faint',    '#94a3b8');
+    } else {
+      root.style.setProperty('--bg',       '#080b10');
+      root.style.setProperty('--surface',  '#0e1219');
+      root.style.setProperty('--surface2', '#141922');
+      root.style.setProperty('--border',   '#1e2535');
+      root.style.setProperty('--border2',  '#2a3347');
+      root.style.setProperty('--text',     '#e2e8f0');
+      root.style.setProperty('--muted',    '#64748b');
+      root.style.setProperty('--faint',    '#374151');
+    }
+
+    // Density
+    const density = data.layout_density || data.density || 'comfortable';
+    const mainPad = { compact: '16px 20px 32px', comfortable: '24px 28px 40px', spacious: '32px 36px 56px' };
+    document.querySelectorAll('.db-main, .in-main, .sb-main').forEach(el => {
+      el.style.padding = mainPad[density] || mainPad.comfortable;
+    });
+  } catch (_) {}
+}
+
 // ─── Design Tokens & Global CSS ──────────────────────────────────────────────
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -224,6 +276,98 @@ const GLOBAL_CSS = `
     transition: color .15s;
   }
   .sb-logout:hover { color: var(--red); }
+
+  /* Plan card */
+  .sb-plan {
+    flex-shrink: 0;
+    margin: 0 12px 12px;
+    border-radius: var(--r-md);
+    padding: 14px;
+    position: relative;
+    overflow: hidden;
+    border: 1px solid var(--border2);
+    background: var(--surface2);
+  }
+  .sb-plan.plan-pro {
+    background: linear-gradient(135deg, rgba(200,245,96,.08) 0%, rgba(120,208,0,.04) 100%);
+    border-color: rgba(200,245,96,.25);
+  }
+  .sb-plan.plan-elite {
+    background: linear-gradient(135deg, rgba(167,139,250,.1) 0%, rgba(96,165,250,.06) 100%);
+    border-color: rgba(167,139,250,.3);
+  }
+  .sb-plan::before {
+    content: '';
+    position: absolute;
+    top: -20px; right: -20px;
+    width: 70px; height: 70px;
+    border-radius: 50%;
+    background: var(--plan-glow, rgba(200,245,96,.08));
+    filter: blur(16px);
+    pointer-events: none;
+  }
+  .sb-plan-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .sb-plan-badge {
+    display: inline-flex; align-items: center; gap: 5px;
+    font-size: 10px; font-weight: 700; letter-spacing: .6px;
+    text-transform: uppercase;
+    padding: 3px 8px; border-radius: 20px;
+    background: var(--plan-badge-bg, var(--accent-dim));
+    color: var(--plan-badge-color, var(--accent));
+    border: 1px solid var(--plan-badge-border, rgba(200,245,96,.2));
+  }
+  .sb-plan-badge i { font-size: 11px; }
+  .sb-plan-icon {
+    font-size: 18px;
+    color: var(--plan-badge-color, var(--accent));
+    opacity: .7;
+  }
+  .sb-plan-label {
+    font-size: 11px; font-weight: 600; color: var(--text);
+    margin-bottom: 2px;
+  }
+  .sb-plan-sub {
+    font-size: 10px; color: var(--muted); line-height: 1.4;
+  }
+  .sb-plan-bar-wrap {
+    margin: 10px 0 8px;
+    height: 3px; border-radius: 2px;
+    background: var(--border2);
+    overflow: hidden;
+  }
+  .sb-plan-bar-fill {
+    height: 100%; border-radius: 2px;
+    background: var(--plan-badge-color, var(--accent));
+    transition: width .6s ease;
+  }
+  .sb-plan-upgrade {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    width: 100%;
+    padding: 7px 0;
+    border-radius: var(--r-sm);
+    font-size: 11px; font-weight: 700; letter-spacing: .3px;
+    background: var(--plan-btn-bg, var(--accent));
+    color: var(--plan-btn-color, #000);
+    border: none; cursor: pointer;
+    transition: opacity .15s, transform .1s;
+  }
+  .sb-plan-upgrade:hover { opacity: .88; transform: translateY(-1px); }
+  .sb-plan-upgrade i { font-size: 13px; }
+  .sb-plan-current {
+    display: flex; align-items: center; justify-content: center; gap: 5px;
+    width: 100%;
+    padding: 7px 0;
+    border-radius: var(--r-sm);
+    font-size: 11px; font-weight: 600;
+    background: transparent;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    cursor: default;
+  }
+  .sb-plan-current i { font-size: 13px; color: var(--green); }
 
   /* ── RIGHT PANEL (topbar + content) ── */
   .right-panel {
@@ -832,6 +976,59 @@ const ACCOUNT_LINKS = [
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
+const PLAN_META = {
+  free:  { label:'Free',  icon:'ti-leaf',       badgeBg:'rgba(100,116,139,.15)', badgeColor:'#94a3b8', badgeBorder:'rgba(100,116,139,.2)', btnBg:'var(--accent)', btnColor:'#000', glow:'rgba(200,245,96,.06)',  fill:20, sub:'Limited access · 2 positions', upgrade:true  },
+  pro:   { label:'Pro',   icon:'ti-bolt',       badgeBg:'rgba(200,245,96,.12)', badgeColor:'var(--accent)', badgeBorder:'rgba(200,245,96,.2)', btnBg:'var(--accent)', btnColor:'#000', glow:'rgba(200,245,96,.1)',  fill:60, sub:'Full access · Unlimited positions', upgrade:true  },
+  elite: { label:'Elite', icon:'ti-crown',      badgeBg:'rgba(167,139,250,.15)', badgeColor:'var(--purple)', badgeBorder:'rgba(167,139,250,.25)', btnBg:'rgba(167,139,250,.15)', btnColor:'var(--purple)', glow:'rgba(167,139,250,.12)', fill:100, sub:'Everything · Priority support', upgrade:false },
+};
+
+function PlanCard({ plan }) {
+  const key  = (plan ?? 'free').toLowerCase();
+  const meta = PLAN_META[key] || PLAN_META.free;
+  const planClass = key === 'elite' ? 'plan-elite' : key === 'pro' ? 'plan-pro' : '';
+
+  const style = {
+    '--plan-glow':         meta.glow,
+    '--plan-badge-bg':     meta.badgeBg,
+    '--plan-badge-color':  meta.badgeColor,
+    '--plan-badge-border': meta.badgeBorder,
+    '--plan-btn-bg':       meta.btnBg,
+    '--plan-btn-color':    meta.btnColor,
+  };
+
+  return (
+    <div className={`sb-plan ${planClass}`} style={style}>
+      <div className="sb-plan-row">
+        <span className="sb-plan-badge">
+          <i className={`ti ${meta.icon}`} />
+          {meta.label} Plan
+        </span>
+        <i className={`ti ${meta.icon} sb-plan-icon`} />
+      </div>
+      <div className="sb-plan-label">
+        {key === 'elite' ? 'You\'re on the top tier' : key === 'pro' ? 'Pro features active' : 'Upgrade your plan'}
+      </div>
+      <div className="sb-plan-sub">{meta.sub}</div>
+      <div className="sb-plan-bar-wrap">
+        <div className="sb-plan-bar-fill" style={{ width: `${meta.fill}%` }} />
+      </div>
+      {meta.upgrade ? (
+        <a href="/billing">
+          <button className="sb-plan-upgrade">
+            <i className="ti ti-rocket" />
+            {key === 'pro' ? 'Upgrade to Elite' : 'Upgrade to Pro'}
+          </button>
+        </a>
+      ) : (
+        <div className="sb-plan-current">
+          <i className="ti ti-circle-check" />
+          Highest plan · You\'re all set
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Sidebar({ open, user, onLogout }) {
   const initials    = user ? `${user.first_name?.[0]??''}${user.last_name?.[0]??''}`.toUpperCase() || user.email?.[0]?.toUpperCase() || '?' : '?';
   const displayName = user ? [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email : '—';
@@ -873,6 +1070,8 @@ function Sidebar({ open, user, onLogout }) {
         ))}
       </div>
 
+      <PlanCard plan={user?.plan} />
+
       <div className="sb-user">
         <div className="sb-avatar">{initials}</div>
         <div>
@@ -901,10 +1100,11 @@ function Topbar({ onMenu, user }) {
         <input placeholder="Search assets, orders…" />
       </div>
       <div className="topbar-icon">
+        <a href="/notification">
         <i className="ti ti-bell" />
-        <span className="notif-dot" />
+        <span className="notif-dot" /></a>
       </div>
-      <div className="topbar-icon"><i className="ti ti-settings" /></div>
+      <div className="topbar-icon"><a href="/settings"><i className="ti ti-settings" /></a></div>
       <div className="topbar-avatar">{initials}</div>
     </div>
   );
@@ -1242,6 +1442,9 @@ export default function Dashboard() {
   const [copyRels,    setCopyRels]    = useState([]);
   const [mpItems,     setMpItems]     = useState([]);
 
+  // Apply cached appearance immediately on mount (before DB responds)
+  useEffect(() => { applyAppearance(); }, []);
+
   useEffect(() => {
     let mounted = true;
 
@@ -1256,6 +1459,7 @@ export default function Dashboard() {
         { data: pos },
         { data: copies },
         { data: mp },
+        { data: userSettings },
       ] = await Promise.all([
         supabase.from('users').select('first_name,last_name,email,plan,is_verified,currency').eq('id', uid).single(),
         supabase.from('portfolio_snapshots').select('*').eq('user_id', uid).order('snapped_at', { ascending:false }).limit(1).maybeSingle(),
@@ -1263,6 +1467,7 @@ export default function Dashboard() {
         supabase.from('open_positions').select('symbol,trade_type,open_price,current_price,profit_loss,status').eq('user_id', uid).eq('status','open').order('opened_at', { ascending:false }).limit(10),
         supabase.from('copy_relationships').select(`allocated_amount,trader_profiles(display_name,handle,initials,color_hex,trader_performance(roi_pct,period))`).eq('copier_id', uid).eq('status','active'),
         supabase.from('marketplace_items').select('name,tag,icon_class,color_hex,price_monthly,roi_12m_pct').eq('is_active', true).order('subscriber_count', { ascending:false }).limit(3),
+        supabase.from('user_settings').select('theme,accent_color,layout_density').eq('user_id', uid).maybeSingle(),
       ]);
 
       if (!mounted) return;
@@ -1295,6 +1500,14 @@ export default function Dashboard() {
         })));
       }
       if (mp?.length) setMpItems(mp);
+      // Apply appearance from DB settings (and sync to localStorage for other pages)
+      if (userSettings) {
+        localStorage.setItem('tf_appearance', JSON.stringify(userSettings));
+        applyAppearance(userSettings);
+      } else {
+        // Fall back to whatever is already in localStorage
+        applyAppearance();
+      }
       setAuthChecked(true);
     };
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import supabase from "../supabase";
 
 /* ─── Design tokens (matches CopyTrading) ───────────────────────────────────── */
@@ -11,6 +11,116 @@ const T = {
   mono:"'JetBrains Mono', monospace",
 };
 
+/* ─── Default user_settings (matches DB defaults) ──────────────────────────── */
+const DEFAULT_SETTINGS = {
+  theme:                'dark',
+  accent_color:         '#c8f560',
+  layout_density:       'comfortable',
+  chart_type:           'candle',
+  show_volume:          true,
+  show_extended_hours:  false,
+  show_grid_lines:      true,
+  profile_public:       true,
+  show_watchlist:       false,
+  show_activity:        true,
+  show_followed_traders:false,
+  appear_in_search:     true,
+  usage_analytics:      true,
+  personalised_feed:    true,
+  marketing_emails:     false,
+};
+
+/* ─── Resolve system theme ──────────────────────────────────────────────────── */
+function resolveTheme(theme) {
+  if (theme === 'system') {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  }
+  return theme;
+}
+
+/* ─── Build :root CSS vars from user_settings ────────────────────────────────
+   Light theme maps to a slate/white palette; dark keeps the existing dark palette.
+   accent_color drives --accent and all derived accent-* variables.
+   layout_density maps to spacing/padding adjustments.             ─────────── */
+function buildThemeVars(settings) {
+  const s       = { ...DEFAULT_SETTINGS, ...settings };
+  const theme   = resolveTheme(s.theme);
+  const accent  = s.accent_color;
+
+  // Parse accent hex → r,g,b for rgba derivations
+  const hex2rgb = h => {
+    const c = h.replace('#', '');
+    const r = parseInt(c.slice(0, 2), 16);
+    const g = parseInt(c.slice(2, 4), 16);
+    const b = parseInt(c.slice(4, 6), 16);
+    return [r, g, b];
+  };
+  const [ar, ag, ab] = hex2rgb(accent);
+
+  // Density → sidebar width + main padding
+  const densityMap = {
+    compact:     { sbW: '220px', mainPad: '16px 20px 32px', metricPad: '12px 16px', cardPad: '14px', gap: '10px' },
+    comfortable: { sbW: '256px', mainPad: '24px 28px 40px', metricPad: '18px 20px', cardPad: '18px', gap: '14px' },
+    spacious:    { sbW: '280px', mainPad: '32px 36px 56px', metricPad: '22px 24px', cardPad: '24px', gap: '18px' },
+  };
+  const d = densityMap[s.layout_density] || densityMap.comfortable;
+
+  const dark = {
+    '--bg':         '#080b10',
+    '--surface':    '#0e1219',
+    '--surface2':   '#141922',
+    '--border':     '#1e2535',
+    '--border2':    '#2a3347',
+    '--text':       '#e2e8f0',
+    '--muted':      '#64748b',
+    '--faint':      '#374151',
+    '--input-bg':   '#141922',
+  };
+  const light = {
+    '--bg':         '#f0f4f8',
+    '--surface':    '#ffffff',
+    '--surface2':   '#f8fafc',
+    '--border':     '#e2e8f0',
+    '--border2':    '#cbd5e1',
+    '--text':       '#0f172a',
+    '--muted':      '#64748b',
+    '--faint':      '#94a3b8',
+    '--input-bg':   '#f1f5f9',
+  };
+
+  const palette = theme === 'light' ? light : dark;
+
+  return {
+    ...palette,
+    '--accent':       accent,
+    '--accent-dim':   `rgba(${ar},${ag},${ab},.12)`,
+    '--accent-glow':  `rgba(${ar},${ag},${ab},.06)`,
+    '--accent-rgb':   `${ar},${ag},${ab}`,
+    '--green':        '#34d399',
+    '--green-dim':    'rgba(52,211,153,.12)',
+    '--red':          '#f87171',
+    '--red-dim':      'rgba(248,113,113,.12)',
+    '--blue':         '#60a5fa',
+    '--purple':       '#a78bfa',
+    '--sidebar-w':    d.sbW,
+    '--topbar-h':     '60px',
+    '--density-pad':  d.mainPad,
+    '--metric-pad':   d.metricPad,
+    '--card-pad':     d.cardPad,
+    '--grid-gap':     d.gap,
+    '--sans':         "'Space Grotesk', sans-serif",
+    '--serif':        "'Instrument Serif', serif",
+    '--mono':         "'JetBrains Mono', monospace",
+    '--r-sm': '8px', '--r-md': '12px', '--r-lg': '16px',
+  };
+}
+
+/* ─── Inject/update :root CSS vars ─────────────────────────────────────────── */
+function applyThemeVars(vars) {
+  const root = document.documentElement;
+  Object.entries(vars).forEach(([k, v]) => root.style.setProperty(k, v));
+}
+
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
   @import url('https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3.10.0/tabler-icons.min.css');
@@ -19,6 +129,7 @@ const GLOBAL_CSS = `
   html { font-size: 14px; }
 
   :root {
+    /* All values injected dynamically via applyThemeVars() from user_settings */
     --bg:         #080b10;
     --surface:    #0e1219;
     --surface2:   #141922;
@@ -30,6 +141,7 @@ const GLOBAL_CSS = `
     --accent:     #c8f560;
     --accent-dim: rgba(200,245,96,.12);
     --accent-glow:rgba(200,245,96,.06);
+    --accent-rgb: 200,245,96;
     --green:      #34d399;
     --green-dim:  rgba(52,211,153,.12);
     --red:        #f87171;
@@ -38,6 +150,10 @@ const GLOBAL_CSS = `
     --purple:     #a78bfa;
     --sidebar-w:  256px;
     --topbar-h:   60px;
+    --density-pad:  24px 28px 40px;
+    --metric-pad:   18px 20px;
+    --card-pad:     18px;
+    --grid-gap:     14px;
     --sans:  'Space Grotesk', sans-serif;
     --serif: 'Instrument Serif', serif;
     --mono:  'JetBrains Mono', monospace;
@@ -117,7 +233,7 @@ const GLOBAL_CSS = `
   .mp-sb-pill {
     margin: 12px 16px;
     background: var(--accent-dim);
-    border: 1px solid rgba(200,245,96,.18);
+    border: 1px solid rgba(var(--accent-rgb),.18);
     border-radius: var(--r-md);
     padding: 10px 14px;
     flex-shrink: 0;
@@ -169,7 +285,7 @@ const GLOBAL_CSS = `
     background: linear-gradient(135deg, var(--accent) 0%, #78d000 100%);
     color: #000; font-size: 12px; font-weight: 700;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    box-shadow: 0 0 12px rgba(200,245,96,.3);
+    box-shadow: 0 0 12px rgba(var(--accent-rgb),.3);
   }
   .mp-sb-user-name { font-size: 13px; font-weight: 700; color: var(--text); }
   .mp-sb-user-role { font-size: 10px; color: var(--accent); margin-top: 1px; }
@@ -207,7 +323,7 @@ const GLOBAL_CSS = `
     background: linear-gradient(135deg, var(--accent) 0%, #78d000 100%);
     color: #000; font-size: 12px; font-weight: 700;
     display: flex; align-items: center; justify-content: center;
-    cursor: pointer; box-shadow: 0 0 10px rgba(200,245,96,.25);
+    cursor: pointer; box-shadow: 0 0 10px rgba(var(--accent-rgb),.25);
   }
   .mp-hamburger {
     display: none; flex-direction: column; gap: 5px; cursor: pointer; padding: 4px;
@@ -217,7 +333,7 @@ const GLOBAL_CSS = `
   /* ── Main ── */
   .mp-main {
     flex: 1; overflow-y: auto; overflow-x: hidden;
-    padding: 24px 28px 40px;
+    padding: var(--density-pad);
   }
 
   /* Page header */
@@ -244,7 +360,7 @@ const GLOBAL_CSS = `
   }
   .mp-btn-sm  { font-size: 12px; padding: 7px 14px; }
   .mp-btn-accent { background: var(--accent); color: #000; }
-  .mp-btn-accent:hover { opacity: .88; box-shadow: 0 0 20px rgba(200,245,96,.3); }
+  .mp-btn-accent:hover { opacity: .88; box-shadow: 0 0 20px rgba(var(--accent-rgb),.3); }
   .mp-btn-ghost {
     background: var(--surface2); border: 1px solid var(--border);
     color: var(--text); font-size: 12px; padding: 7px 14px;
@@ -253,11 +369,11 @@ const GLOBAL_CSS = `
 
   /* ── Metrics ── */
   .mp-metrics {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 20px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--grid-gap); margin-bottom: 20px;
   }
   .mp-metric {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--r-lg); padding: 18px 20px;
+    border-radius: var(--r-lg); padding: var(--metric-pad);
     position: relative; overflow: hidden;
     transition: border-color .2s, transform .2s;
   }
@@ -311,7 +427,7 @@ const GLOBAL_CSS = `
   /* Filters */
   .mp-filters { display: flex; gap: 8px; flex-wrap: wrap; }
   .mp-select {
-    background: var(--surface2); border: 1px solid var(--border);
+    background: var(--input-bg, var(--surface2)); border: 1px solid var(--border);
     color: var(--text); border-radius: var(--r-sm); padding: 7px 10px;
     font-size: 12px; font-family: var(--sans); cursor: pointer; outline: none;
     transition: border-color .15s;
@@ -319,13 +435,13 @@ const GLOBAL_CSS = `
   .mp-select:hover { border-color: var(--border2); }
 
   /* ── Cards grid ── */
-  .mp-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
-  .mp-grid-1 { display: grid; gap: 14px; }
+  .mp-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--grid-gap); }
+  .mp-grid-1 { display: grid; gap: var(--grid-gap); }
 
   /* ── Item Card ── */
   .mp-item-card {
     background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--r-lg); padding: 18px; cursor: pointer;
+    border-radius: var(--r-lg); padding: var(--card-pad); cursor: pointer;
     transition: all .18s; position: relative; overflow: hidden;
   }
   .mp-item-card:hover { background: var(--surface2); border-color: var(--border2); transform: translateY(-1px); }
@@ -391,6 +507,11 @@ const GLOBAL_CSS = `
   .mp-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); }
   .mp-table tr:last-child td { border-bottom: none; }
   .mp-table tr:hover td { background: var(--surface2); }
+  /* When show_grid_lines is false, hide column separators */
+  .mp-table.no-grid-lines td,
+  .mp-table.no-grid-lines th { border-bottom: none; }
+  .mp-table.no-grid-lines tr:last-child td { border-bottom: none; }
+  .mp-table.no-grid-lines tbody tr { border-bottom: 1px solid var(--border); }
   .mp-table-manage-btn {
     background: transparent; border: 1px solid var(--border);
     color: var(--text); border-radius: 7px; padding: 6px 14px;
@@ -435,7 +556,7 @@ const GLOBAL_CSS = `
   .mp-modal-stat-lbl { font-size: 10px; color: var(--muted); margin-top: 3px; text-align: center; }
   .mp-input-label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 6px; font-weight: 600; }
   .mp-input {
-    width: 100%; background: var(--surface2); border: 1px solid var(--border);
+    width: 100%; background: var(--input-bg, var(--surface2)); border: 1px solid var(--border);
     border-radius: var(--r-sm); padding: 10px 12px; font-size: 13px; color: var(--text);
     font-family: var(--sans); outline: none; transition: border-color .15s;
   }
@@ -564,7 +685,7 @@ function Topbar({ onMenu, user }) {
         <span style={{ color: T.gn }}>▲</span> BTC $67,420
       </div>
       <div className="mp-topbar-icon"><i className="ti ti-search" /></div>
-      <div className="mp-topbar-icon"><i className="ti ti-bell" /><span className="mp-notif-dot" /></div>
+      <div className="mp-topbar-icon"><a href='/notification'><i className="ti ti-bell" /><span className="mp-notif-dot" /></a></div>
       <div className="mp-topbar-avatar">{initials}</div>
     </div>
   );
@@ -682,7 +803,7 @@ function SignalCard({ item, onSubscribe }) {
 }
 
 /* ── Active Subscriptions — fetched from marketplace_subscriptions JOIN marketplace_items ── */
-function ActiveSubscriptions({ userId, refreshKey }) {
+function ActiveSubscriptions({ userId, refreshKey, userSettings = DEFAULT_SETTINGS }) {
   const [subs,    setSubs]    = useState([]);
   const [loading, setLoading] = useState(true);
   const [err,     setErr]     = useState('');
@@ -734,7 +855,7 @@ function ActiveSubscriptions({ userId, refreshKey }) {
           No active subscriptions yet. Browse bots and signal plans below.
         </div>
       ) : (
-        <table className="mp-table">
+        <table className={`mp-table${userSettings.show_grid_lines === false ? ' no-grid-lines' : ''}`}>
           <thead>
             <tr>
               <th>Name</th><th>Type</th><th>Status</th>
@@ -1161,6 +1282,12 @@ export default function Marketplace() {
   const [sortBy,      setSortBy]      = useState('roi');
   const [refreshKey,  setRefreshKey]  = useState(0);
 
+  // user_settings from DB — applied as CSS vars on :root
+  const [userSettings, setUserSettings] = useState(DEFAULT_SETTINGS);
+
+  // Keep sortBy in sync with personalised_feed preference
+  const settingsApplied = useRef(false);
+
   // marketplace_items fetched from DB
   const [bots,        setBots]        = useState([]);
   const [signals,     setSignals]     = useState([]);
@@ -1180,11 +1307,20 @@ export default function Marketplace() {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         const uid = session.user.id;
-        const [{ data: profile }, { data: wallet }] = await Promise.all([
+        const [{ data: profile }, { data: wallet }, { data: settings }] = await Promise.all([
           supabase.from('users').select('id, first_name, last_name, handle, plan, is_verified').eq('id', uid).single(),
           supabase.from('wallets').select('balance').eq('user_id', uid).eq('currency', 'USD').maybeSingle(),
+          supabase.from('user_settings').select('*').eq('user_id', uid).maybeSingle(),
         ]);
         if (profile) setUser({ ...profile, balance: parseFloat(wallet?.balance ?? 0) });
+        if (settings) {
+          setUserSettings(s => ({ ...s, ...settings }));
+          // Apply personalised_feed preference to default sort (only on first load)
+          if (!settingsApplied.current) {
+            settingsApplied.current = true;
+            setSortBy(settings.personalised_feed ? 'roi' : 'price');
+          }
+        }
       }
       setAuthLoading(false);
     });
@@ -1193,6 +1329,20 @@ export default function Marketplace() {
     });
     return () => subscription.unsubscribe();
   }, []);
+
+  /* ── Apply user_settings → CSS vars on :root ── */
+  useEffect(() => {
+    const vars = buildThemeVars(userSettings);
+    applyThemeVars(vars);
+
+    // If theme is 'system', re-apply when OS preference changes
+    if (userSettings.theme === 'system') {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const handler = () => applyThemeVars(buildThemeVars(userSettings));
+      mq.addEventListener('change', handler);
+      return () => mq.removeEventListener('change', handler);
+    }
+  }, [userSettings]);
 
   /* ── Fetch marketplace_items from DB ── */
   useEffect(() => {
@@ -1296,7 +1446,7 @@ export default function Marketplace() {
               {metrics.map(m => <MetricCard key={m.label} m={m} />)}
             </div>
 
-            <ActiveSubscriptions userId={user?.id} refreshKey={refreshKey} />
+            <ActiveSubscriptions userId={user?.id} refreshKey={refreshKey} userSettings={userSettings} />
 
             <div className="mp-controls">
               <div className="mp-tabs">

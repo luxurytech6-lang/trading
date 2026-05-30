@@ -11,6 +11,77 @@ const T = {
   mono:"'JetBrains Mono', monospace",
 };
 
+/* ─── Default user settings (mirrors DB defaults) ───────────────────────────── */
+const DEFAULT_SETTINGS = {
+  theme:                'dark',
+  accent_color:         '#c8f560',
+  layout_density:       'comfortable',
+  chart_type:           'candle',
+  show_volume:          true,
+  show_extended_hours:  false,
+  show_grid_lines:      true,
+  profile_public:       true,
+  show_watchlist:       false,
+  show_activity:        true,
+  show_followed_traders:false,
+  appear_in_search:     true,
+  usage_analytics:      true,
+  personalised_feed:    true,
+  marketing_emails:     false,
+};
+
+/* ─── Derive CSS variable overrides from user settings ───────────────────────── */
+function buildThemeVars(settings) {
+  const s = { ...DEFAULT_SETTINGS, ...settings };
+  const accent = s.accent_color || '#c8f560';
+
+  // Parse accent hex → rgb components for dim/glow variants
+  const hex = accent.replace('#', '');
+  const r   = parseInt(hex.substring(0,2), 16);
+  const g   = parseInt(hex.substring(2,4), 16);
+  const b   = parseInt(hex.substring(4,6), 16);
+
+  // Density → spacing scale
+  const densityMap = {
+    compact:      { mainPad: '14px 18px 32px', metricPad: '12px 14px', topbarH: '52px', sidebarW: '232px' },
+    comfortable:  { mainPad: '24px 28px 40px', metricPad: '18px 20px', topbarH: '60px', sidebarW: '256px' },
+    spacious:     { mainPad: '32px 40px 56px', metricPad: '22px 24px', topbarH: '68px', sidebarW: '272px' },
+  };
+  const density = densityMap[s.layout_density] || densityMap.comfortable;
+
+  // Theme palette
+  const isDark   = s.theme === 'dark'  || (s.theme === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+  const isLight  = s.theme === 'light' || (s.theme === 'system' && !window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+  const palette = isDark ? {
+    bg: '#080b10', surface: '#0e1219', surface2: '#141922',
+    border: '#1e2535', border2: '#2a3347',
+    text: '#e2e8f0', muted: '#64748b', faint: '#374151',
+  } : {
+    bg: '#f0f4f8', surface: '#ffffff', surface2: '#f8fafc',
+    border: '#e2e8f0', border2: '#cbd5e1',
+    text: '#0f172a', muted: '#64748b', faint: '#94a3b8',
+  };
+
+  return `
+    --bg:         ${palette.bg};
+    --surface:    ${palette.surface};
+    --surface2:   ${palette.surface2};
+    --border:     ${palette.border};
+    --border2:    ${palette.border2};
+    --text:       ${palette.text};
+    --muted:      ${palette.muted};
+    --faint:      ${palette.faint};
+    --accent:     ${accent};
+    --accent-dim: rgba(${r},${g},${b},.12);
+    --accent-glow:rgba(${r},${g},${b},.06);
+    --sidebar-w:  ${density.sidebarW};
+    --topbar-h:   ${density.topbarH};
+    --main-pad:   ${density.mainPad};
+    --metric-pad: ${density.metricPad};
+  `;
+}
+
 /* ─── CSS ────────────────────────────────────────────────────────────────────── */
 const GLOBAL_CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -126,7 +197,7 @@ const GLOBAL_CSS = `
   .in-hamburger span { display: block; width: 20px; height: 2px; background: var(--text); border-radius: 2px; }
 
   /* ── Main ── */
-  .in-main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 24px 28px 40px; }
+  .in-main { flex: 1; overflow-y: auto; overflow-x: hidden; padding: var(--main-pad, 24px 28px 40px); }
   .in-page-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 24px; }
   .in-page-title { font-family: var(--serif); font-size: 28px; color: var(--text); line-height: 1.2; }
   .in-page-title em { color: var(--accent); font-style: italic; }
@@ -143,7 +214,7 @@ const GLOBAL_CSS = `
 
   /* ── Metrics ── */
   .in-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
-  .in-metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: 18px 20px; position: relative; overflow: hidden; transition: all .2s; }
+  .in-metric { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: var(--metric-pad, 18px 20px); position: relative; overflow: hidden; transition: all .2s; }
   .in-metric:hover { border-color: var(--border2); transform: translateY(-1px); }
   .in-metric::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px; background: linear-gradient(90deg, transparent 0%, var(--accent) 50%, transparent 100%); opacity: .3; }
   .in-metric-icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 12px; }
@@ -411,7 +482,7 @@ function Topbar({ onMenu, user }) {
       <div className="in-topbar-title">{greeting}, <span>{user?.first_name || '…'}</span></div>
       <div style={{ flex: 1 }} />
       <div className="in-tb-icon"><i className="ti ti-search" /></div>
-      <div className="in-tb-icon"><i className="ti ti-bell" /><span className="in-notif-dot" /></div>
+      <div className="in-tb-icon"><a href='/notification'><i className="ti ti-bell" /><span className="in-notif-dot" /></a></div>
       <div className="in-tb-avatar">{initials}</div>
     </div>
   );
@@ -725,7 +796,7 @@ function EventsPanel({ marketFilter, impactFilter }) {
 }
 
 /* ─── ForecastPanel ──────────────────────────────────────────────────────────── */
-function ForecastPanel({ marketFilter }) {
+function ForecastPanel({ marketFilter, settings = DEFAULT_SETTINGS }) {
   const [loading,  setLoading]  = useState(true);
   const [err,      setErr]      = useState('');
   const [gauges,   setGauges]   = useState([]);
@@ -797,19 +868,37 @@ function ForecastPanel({ marketFilter }) {
                 </span>
               </div>
               <div className="fc-gauge">
-                <div className="fc-gauge-track">
-                  <div className="fc-gauge-fill" style={{ width: `${f.bullish_pct || 50}%`, background: f.color_hex || T.g }} />
+                  <div className="fc-gauge-track">
+                    <div className="fc-gauge-fill" style={{ width: `${f.bullish_pct || 50}%`, background: f.color_hex || T.g }} />
+                  </div>
+                  <div className="fc-gauge-labels"><span>Bearish</span><span>Bullish</span></div>
                 </div>
-                <div className="fc-gauge-labels"><span>Bearish</span><span>Bullish</span></div>
-              </div>
-              <div className="fc-card-footer">
-                <span className="fc-card-source">
-                  {f.source && <><i className="ti ti-users" style={{ fontSize: 11, marginRight: 4 }} />{f.source}</>}
-                </span>
-                <span className="fc-card-confidence" style={{ color: f.color_hex || T.g }}>
-                  {f.confidence_pct}% confidence
-                </span>
-              </div>
+                <div className="fc-card-footer">
+                  <span className="fc-card-source">
+                    {f.source && <><i className="ti ti-users" style={{ fontSize: 11, marginRight: 4 }} />{f.source}</>}
+                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {/* Chart type badge from user settings */}
+                    <span style={{
+                      fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.8px',
+                      background: 'var(--surface2)', border: '1px solid var(--border)',
+                      borderRadius: 4, padding: '2px 6px', color: 'var(--muted)',
+                    }}>
+                      <i className={`ti ti-chart-${settings.chart_type === 'line' ? 'line' : settings.chart_type === 'area' ? 'area' : settings.chart_type === 'bar' ? 'bar' : 'candle-filled'}`}
+                         style={{ fontSize: 10, marginRight: 3 }} />
+                      {settings.chart_type}
+                    </span>
+                    {settings.show_volume && (
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.8px',
+                        background: 'var(--blue-dim)', borderRadius: 4, padding: '2px 6px', color: 'var(--blue)',
+                      }}>VOL</span>
+                    )}
+                    <span className="fc-card-confidence" style={{ color: f.color_hex || T.g }}>
+                      {f.confidence_pct}% confidence
+                    </span>
+                  </div>
+                </div>
             </div>
           ))}
         </div>
@@ -853,7 +942,7 @@ function ForecastPanel({ marketFilter }) {
 }
 
 /* ─── PredictPanel ───────────────────────────────────────────────────────────── */
-function PredictPanel() {
+function PredictPanel({ settings = DEFAULT_SETTINGS }) {
   const [loading,     setLoading]     = useState(true);
   const [err,         setErr]         = useState('');
   const [predictions, setPredictions] = useState([]);
@@ -898,6 +987,17 @@ function PredictPanel() {
           Global Market Sentiment —{' '}
           <em style={{ color: T.pr, fontStyle: 'italic' }}>{sentimentLabel}</em>
         </div>
+        {settings.show_extended_hours && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            background: 'var(--amber-dim)', border: '1px solid rgba(245,158,11,.2)',
+            borderRadius: 6, padding: '3px 10px', fontSize: 10, fontWeight: 700,
+            color: 'var(--amber)', marginBottom: 8, letterSpacing: '.5px',
+          }}>
+            <i className="ti ti-clock-hour-4" style={{ fontSize: 12 }} />
+            Extended Hours Data Included
+          </div>
+        )}
         <div className="pr-hero-sub">
           TradeFlow's ensemble model synthesises 340+ data sources — macro indicators, on-chain signals,
           options flow, and sentiment feeds — to produce a real-time market consensus.
@@ -981,6 +1081,7 @@ export default function Insights() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [marketFilter, setMarketFilter] = useState('All Markets');
   const [impactFilter, setImpactFilter] = useState('All Impact');
+  const [settings,    setSettings]    = useState(DEFAULT_SETTINGS);
 
   // Metrics derived from DB counts
   const [metrics, setMetrics] = useState([
@@ -990,21 +1091,23 @@ export default function Insights() {
     { label: 'AI Predictions',  value: '—', sub: 'Loading…',        icon: 'ti-cpu',                   bg: 'rgba(167,139,250,.12)', col: '#a78bfa' },
   ]);
 
-  /* ── Auth ── */
+  /* ── Auth + Settings ── */
   useEffect(() => {
     supabase.auth.getSession().then(async ({ data: { session } }) => {
       if (session) {
         const uid = session.user.id;
-        const [{ data: profile }, { data: wallet }] = await Promise.all([
+        const [{ data: profile }, { data: wallet }, { data: userSettings }] = await Promise.all([
           supabase.from('users').select('id, first_name, last_name, plan, is_verified').eq('id', uid).single(),
           supabase.from('wallets').select('balance').eq('user_id', uid).eq('currency', 'USD').single(),
+          supabase.from('user_settings').select('*').eq('user_id', uid).single(),
         ]);
         if (profile) setUser({ ...profile, balance: parseFloat(wallet?.balance ?? 0) });
+        if (userSettings) setSettings({ ...DEFAULT_SETTINGS, ...userSettings });
       }
       setAuthLoading(false);
     });
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, session) => {
-      if (!session) setUser(null);
+      if (!session) { setUser(null); setSettings(DEFAULT_SETTINGS); }
     });
     return () => subscription.unsubscribe();
   }, []);
@@ -1073,9 +1176,22 @@ export default function Insights() {
     </>
   );
 
+  // Dynamic theme vars derived from user settings
+  const dynamicVars = buildThemeVars(settings);
+
   return (
     <>
       <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+      {/* Per-user theme / density / accent overrides */}
+      <style dangerouslySetInnerHTML={{ __html: `:root { ${dynamicVars} }` }} />
+      {/* Grid lines toggle: hide table grid borders when disabled */}
+      {!settings.show_grid_lines && (
+        <style dangerouslySetInnerHTML={{ __html: `
+          .in-table td, .in-table th { border-bottom-color: transparent !important; }
+          .in-table tr:hover td { outline: none; }
+          .fc-table-wrap, .eco-hero-impact, .ev-card { border-color: var(--border) !important; }
+        `}} />
+      )}
 
       {sidebarOpen && (
         <div onClick={() => setSidebarOpen(false)} style={{
@@ -1145,8 +1261,8 @@ export default function Insights() {
             {/* Panels */}
             {tab === 'economic' && <EconomicPanel marketFilter={marketFilter} impactFilter={impactFilter} />}
             {tab === 'events'   && <EventsPanel   marketFilter={marketFilter} impactFilter={impactFilter} />}
-            {tab === 'forecast' && <ForecastPanel marketFilter={marketFilter} />}
-            {tab === 'predict'  && <PredictPanel />}
+            {tab === 'forecast' && <ForecastPanel marketFilter={marketFilter} settings={settings} />}
+            {tab === 'predict'  && <PredictPanel settings={settings} />}
           </main>
         </div>
       </div>
